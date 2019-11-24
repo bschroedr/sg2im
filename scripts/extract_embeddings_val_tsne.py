@@ -65,9 +65,8 @@ import sg2im.vis as vis
 
 #torch.backends.cudnn.benchmark = True
 
-COCO_DIR = os.path.expanduser('/dataset/coco_stuff')
-#COCO_DIR = os.path.expanduser('/Users/brigitsc/sandbox/sg2im/datasets/coco')
-USER_DIR = os.path.expanduser('/nfs/site/home/brigitsc/')
+COCO_DIR = os.path.expanduser('/Users/brigit/datasets/coco_stuff')
+USER_DIR = os.path.expanduser('/Users/brigit/')
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', default='coco', choices=['vg', 'coco'])
@@ -111,11 +110,13 @@ parser.add_argument('--coco_stuff_only', default=True, type=bool_flag)
 parser.add_argument('--random_seed', default=42, type=int)  #For comparative results/debug, use in val_loader
 # data augmentation
 parser.add_argument('--heuristics_ordering', default=True, type=bool_flag)
-# extreme points
+# extreme points (this assumes you have extreme points!
 parser.add_argument('--coco_instances_extreme_train_json',
-         default=os.path.join(COCO_DIR, 'annotations/instances_extreme_train2017.json'))
+         #default=os.path.join(COCO_DIR, 'annotations/instances_extreme_train2017.json'))
+         default=None)
 parser.add_argument('--coco_instances_extreme_val_json',
-         default=os.path.join(COCO_DIR, 'annotations/instances_extreme_val2017.json'))
+         #default=os.path.join(COCO_DIR, 'annotations/instances_extreme_val2017.json'))
+         default=None)
 
 # triplet options
 parser.add_argument('--triplet_box_net', default=False, type=int)
@@ -136,6 +137,8 @@ parser.add_argument('--coco_object_db_json_write', default=None, type=str)
 parser.add_argument('--model_label', default=None, type=str)
 # whitelist for triplet subject classes
 parser.add_argument('--triplet_obj_whitelist', default=None, type=str)
+# load triplet embeddings db from file
+parser.add_argument('--coco_triplet_db_json', default=None, type=str)
 
 # Generator options
 parser.add_argument('--mask_size', default=16, type=int) # Set this to 0 to use no masks
@@ -334,12 +337,18 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
     print('Created %s' %img_dir)
   ##################
 
-  ## if specified load saved objectembeddings
-  if args.coco_object_db_json is not None:
-     pdb.set_trace()
-     object_db = db_utils.read_fr_JSON(args.coco_object_db_json)
+  skip_obj_db = False
+  ## if specified load saved triplet embeddings
+  if args.coco_triplet_db_json is not None:
+     triplet_db = db_utils.read_fr_JSON(args.coco_triplet_db_json)
+     # if triplet object whitelist, strip out keys without this object
+     skip_obj_db = True
+  else:
      triplet_db = None
-  else: 
+  ## if specified load saved object embeddings
+  if args.coco_object_db_json is not None:
+     object_db = db_utils.read_fr_JSON(args.coco_object_db_json)
+  elif skip_obj_db == False: 
     ## begin extract embedding data from model
     num_samples = 0
     all_losses = defaultdict(list)
@@ -426,9 +435,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
           for j in range(0, num_objs):
             name = obj_names[j]
 
-            # object whitelist: select only these objects for  DB
-            #if args.triplet_obj_whitelist is not None and name != args.triplet_obj_whitelist:
-            #  continue
+            # object whitelist: select only these objects for DB
 
             entry = {'id': objs_img[j].tolist(), 'embed': obj_embeddings_img[j].tolist(), 'word_embed': obj_embeddings_word[j].tolist(), 'supercat': obj_supercats[j]}
             if name not in object_db:
@@ -552,14 +559,15 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             #plt.imshow(patch); plt.show()
             # np arrays are not serializable
             # to recover np array: patch = np.array(relationship['image'])
-            #relationship['image'] = [patch.tolist()] 
-            relationship['image'] = patch 
+            relationship['image'] = [patch.tolist()] 
+            #relationship['image'] = patch 
 
             triplet_str = db_utils.tuple_to_string(triplet)
             if triplet_str not in triplet_db:
               triplet_db[triplet_str] = [relationship]
             elif triplet_str in triplet_db:
               triplet_db[triplet_str] += [relationship]
+
           #print('------- end of processing for image --------------------------')
 
         #####f.close()
@@ -568,6 +576,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
         total_boxes += boxes_pred.size(0)
         ####### end single batch process #########
         print('------- single batch processing --------------------------')
+        #pdb.set_trace()
      
     f.close()
     # write object database to JSON file
@@ -576,17 +585,20 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
       print('Writing database to file: ', args.coco_object_db_json_write)
       db_utils.write_to_JSON(object_db, args.coco_object_db_json_write)
     # write triplet database to JSON file
-    #if args.triplet_obj_whitelist is not None:
-    #  triplet_label = args.triplet_obj_whitelist + '.json' # tree, person
-    #else: 
-    #  triplet_label = 'coco_triplet_db.json'
-    #db_utils.write_to_JSON(triplet_db, triplet_label) 
+    pdb.set_trace()
+    if args.coco_triplet_db_json is None and triplet_db is not None: 
+      if args.triplet_obj_whitelist is not None:
+        triplet_label = args.triplet_obj_whitelist + '.json' # tree, person
+      else: 
+        triplet_label = 'coco_triplet_db.json'
+      db_utils.write_to_JSON(triplet_db, triplet_label) 
   #####  end embedding extraction
 
   # analyze JSON database (stats, examples,etc)
   # also, compare word vs SG embedding
-  #analyze_embedding_retrieval(triplet_db)
-  analyze_object_db(object_db, analyze_hierarchical_cluster=True)
+  if triplet_db is not None:
+    analyze_embedding_retrieval(triplet_db)
+  #analyze_object_db(object_db, analyze_hierarchical_cluster=True)
   
   #batch_data = {
   #  'objs': objs.detach().cpu().clone(),
@@ -657,8 +669,12 @@ def analyze_embedding_retrieval(db):
   for k in sort_triplets_by_count:
     # iterate over list of triplets
     for t in range(0, len(db[k])):
-      embeds += db[k][t]['object_embed']  ### this is best
-      ##embeds += [ db[k][t]['predicate_embed'] ] # mode collapse
+      #embeds += db[k][t]['subject_embed']  
+      #embeds += db[k][t]['object_embed']  ### this is best
+      ##embeds += [ db[k][t]['predicate_embed'] ] # mode collaps
+      # pooled embedding
+      pool = np.array(db[k][t]['subject_embed']) + np.array(db[k][t]['object_embed']) + np.array(db[k][t]['predicate_embed'])
+      embeds += pool.tolist() 
       imgs += [ db[k][t]['image'] ]
       labels += [ k + '[' + db[k][t]['subject_supercat'] + '||' + db[k][t]['object_supercat'] + ']' ]
     
@@ -690,16 +706,24 @@ def analyze_embedding_retrieval(db):
     t = 0
     topK = 10 
 
+    
+    # THOUGHT: should we be retrieving patches from the same scene graph/image?
+    # objects in this will/could share embeddings, eg. [person] right of floor, [person] under table
+    # QUESTION: are embedding from the same SG clustered near each other???
+    # scene graph centroid? capture context with this - use as another search embedding!! <s/p/o/context>
     # this isn't conditioned on appearance, just size/location
     for i in query_idx:
       k = np.copy(np_keys)
+      # make local copy of embeds, make query value very large
+      tmp_embeds = np.copy(embeds)
+      tmp_embeds[i] = range(len(embeds[0])) 
       # find top K matches
       query = embeds[i]
-      query_img = imgs[i]
       query_str = np_keys[i]
       k[i] = '[query triplet]'
-      dist = euclid_dist(np.asarray(query), np.asarray(embeds))
-      index = dist.argsort(axis=0) 
+      dist = euclid_dist(np.asarray(query), np.asarray(tmp_embeds))
+      #dist = euclid_dist(np.asarray(query), np.asarray(embeds))
+      index = dist.argsort(axis=0) # indices of sorted list
       print(dist[index[0:topK+1]]) # distance of the top10 sorted queries
       print(index[0:topK+1])
       # get topK query strings (including self)
@@ -716,13 +740,15 @@ def analyze_embedding_retrieval(db):
       print('QUERY: ', query_str) 
     
       # NOTE: this  VVVVVVV  may only work over small groups of images :( 
-      # different triplets showing up from the same image shows that context matters;
+      # different triplets showing up from the same image shows that context matters; (triplets don't work in isolation s.t.s.)
       # things that are identical in context are close in embedding space!!!! 
       # overall query (eg. pooling of predicat embeddings for 1 image)  to do image search?
       #pdb.set_trace() 
       for n in idx:
         fig.add_subplot(1,len(idx), count)
-        plt.imshow(imgs[n])
+        sm_img = np.array(imgs[n]).squeeze()
+        plt.imshow(sm_img)
+        #plt.imshow(sm_img, dtype=np.float32)
         # modify ##plt.xlabel(np_keys[n], fontsize=6)
         plt.xlabel(k[n], fontsize=6)
         #plt.imshow(np.array(imgs[n]))
@@ -950,13 +976,13 @@ def analyze_object_db(db, analyze_hierarchical_cluster=False):
   # create embedding heatmap plot for 
   if analyze_hierarchical_cluster:
     #analyze_SG_word_embed(mean_embed, word_embeds, mean_ids)
-    analyze_hierarchical_clustering(mean_embed, word_embeds, mean_ids, sort_objs_by_count, mean_2d, args.model_label)
+    #analyze_hierarchical_clustering(mean_embed, word_embeds, mean_ids, sort_objs_by_count, mean_2d, args.model_label)
     pt_labels = np.repeat('', len(all_embeds))
     if args.model_label is not None:
       label = args.model_label + '_top50'
     else:
       label = None
-    analyze_hierarchical_clustering(mean_embed[0:50,:], word_embeds[0:50,:], mean_ids[0:50], sort_objs_by_count[0:50], mean_2d, label)
+    #analyze_hierarchical_clustering(mean_embed[0:50,:], word_embeds[0:50,:], mean_ids[0:50], sort_objs_by_count[0:50], mean_2d, label)
 
   pdb.set_trace() 
   import matplotlib.pyplot as plt
@@ -997,7 +1023,6 @@ def main(args):
     if not torch.cuda.is_available():
       print('WARNING: CUDA not available; falling back to CPU')
       device = torch.device('cpu')
-
   # Load the model, with a bit of care in case there are no GPUs
   map_location = 'cpu' if device == torch.device('cpu') else None
   assert os.path.isfile(args.checkpoint)

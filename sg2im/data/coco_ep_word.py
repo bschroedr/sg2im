@@ -154,8 +154,8 @@ class CocoSceneGraphDataset(Dataset):
     if extreme_pts_json is not None and extreme_pts_json != '':
       with open(extreme_pts_json, 'r') as f:
         extreme_pts_data = json.load(f)  
-    # replaces instances_json data (annotations etc)
-    instances_data = extreme_pts_data  
+      # replaces instances_json data (annotations etc)
+      instances_data = extreme_pts_data  
     ####
 
     self.image_ids = []
@@ -216,6 +216,12 @@ class CocoSceneGraphDataset(Dataset):
       _, _, w, h = object_data['bbox']
       W, H = self.image_id_to_size[image_id]
       box_area = (w * h) / (W * H)
+      ## add extreme points if available
+      if extreme_pts_json is None:
+        # use null example as placeholder (to make everything else work!)
+        extreme_points = [[0, 0], [0, 0], [0, 0], [0, 0]]
+        object_data['extreme_points'] = extreme_points
+      #################
       box_ok = box_area > min_object_size
       object_name = object_idx_to_name[object_data['category_id']]
 
