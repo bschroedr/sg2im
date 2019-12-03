@@ -317,6 +317,8 @@ def build_loaders(args):
 #def check_model(args, t, loader, model, logger=None, log_tag='', write_images=False):
 def check_model(args, t, loader, model, log_tag='', write_images=False):
 
+  print('check model!!')
+  pdb.set_trace()
  
   if torch.cuda.is_available():
     float_dtype = torch.cuda.FloatTensor
@@ -559,8 +561,9 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             #plt.imshow(patch); plt.show()
             # np arrays are not serializable
             # to recover np array: patch = np.array(relationship['image'])
-            relationship['image'] = [patch.tolist()] 
+            #relationship['image'] = [patch.tolist()] 
             #relationship['image'] = patch 
+            relationship['full_image'] = [np_imgs[batch_index].tolist()] 
 
             triplet_str = db_utils.tuple_to_string(triplet)
             if triplet_str not in triplet_db:
@@ -580,12 +583,12 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
      
     f.close()
     # write object database to JSON file
-    pdb.set_trace()
+    #pdb.set_trace()
     if args.coco_object_db_json is None and args.coco_object_db_json_write is not None: # if no db specified to load
       print('Writing database to file: ', args.coco_object_db_json_write)
       db_utils.write_to_JSON(object_db, args.coco_object_db_json_write)
     # write triplet database to JSON file
-    pdb.set_trace()
+    #pdb.set_trace()
     if args.coco_triplet_db_json is None and triplet_db is not None: 
       if args.triplet_obj_whitelist is not None:
         triplet_label = args.triplet_obj_whitelist + '.json' # tree, person
@@ -660,24 +663,56 @@ def analyze_embedding_retrieval(db):
   sort_triplets_by_count = sorted(hist, key=lambda x: hist[x].get('count',0), reverse=True)
   sort_count = [hist[k]['count'] for k in sort_triplets_by_count]
 
+  # plot distribution of sorted triplets
+  #plt.clf() # clear current axes
+  #stc = sort_triplets_by_count[0:200]
+  #sc = sort_count[0:200]
+  #x_pos = np.arange(len(sc))
+  #plt.bar(x_pos, sc, align='center', alpha=0.5)
+  #plt.xticks(x_pos, stc)
+  #plt.yticks(np.arange(0, max(sc)+1, 2.0))
+  #plt.set_xlim((0,200))
+  #plt.ylabel("triplet count")
+  #plt.xlabel("triplet label")
+  #plt.title("MS-COCO: Distribution of Top 200 Triplets")
+  #plt.setp(plt.gca().get_xticklabels(), rotation=90, horizontalalignment='right', fontsize=6)
+  #plt.tight_layout()
+  #plt.show()
+
+  x = []
   embeds = []
   imgs = []
   np_imgs = []
   labels = []
-  
+ 
+  pdb.set_trace()
   # iterate over all triplets in db
   for k in sort_triplets_by_count:
+    tr = db_utils.string_to_tuple(k)
+    subj = tr[0]
+    #if subj != 'table':
+    #if subj != 'person':
+    #if subj != 'horse':
+    #if subj != 'fork':
+    #if subj != 'furniture-other':
+    #  continue
+
     # iterate over list of triplets
     for t in range(0, len(db[k])):
-      #embeds += db[k][t]['subject_embed']  
+      embeds += [db[k][t]['embed']] # concatenated embeddings! <s,p,o>
+      #embeds += db[k][t]['subject_embed'] # good result when subject is fixed - context? interesting analysis to be done here!  
       #embeds += db[k][t]['object_embed']  ### this is best
-      ##embeds += [ db[k][t]['predicate_embed'] ] # mode collaps
-      # pooled embedding
-      pool = np.array(db[k][t]['subject_embed']) + np.array(db[k][t]['object_embed']) + np.array(db[k][t]['predicate_embed'])
-      embeds += pool.tolist() 
-      imgs += [ db[k][t]['image'] ]
-      labels += [ k + '[' + db[k][t]['subject_supercat'] + '||' + db[k][t]['object_supercat'] + ']' ]
-    
+      ##embeds += [ db[k][t]['predicate_embed'] ] # too many 0s in topK distances 
+      # NOTE: this is hacky programming and should be fixed!
+      #embeds += [np.concatenate((db[k][t]['predicate_embed'], db[k][t]['object_embed'][0])).tolist()] # works well!! 
+
+      # image patch
+      #imgs += [ db[k][t]['image'] ]
+      # full image
+      imgs += [ db[k][t]['full_image'] ]
+
+      labels += [ k + '\n[' + db[k][t]['subject_supercat'] + '||' + db[k][t]['object_supercat'] + ']' ]
+  
   # gives all keys in database
   #keys = [k for k in db]
   np_keys = np.array(labels)
@@ -687,7 +722,15 @@ def analyze_embedding_retrieval(db):
   # select x queries 
   #query_idx = [0,5,8, 9, 10, 50, 85, 99, 6, 150, 250, 350]
   #query_idx = [0,5,8, 9, 10, 50, 85, 99, 6]
-  query_idx = np.random.permutation(np.arange(len(embeds)))
+  #query_idx = np.random.permutation(np.arange(len(embeds)))
+  pdb.set_trace()
+  # how many total triplets are in top 200 (by label)a
+  sc = np.array(sort_count)
+  # large-scale distribution
+  # count = np.sum(sc[np.where(sc > 6)])
+  # long-tail distribution
+  count = np.sum(sc[np.where((sc < 4) & (sc > 1))])
+  query_idx = np.random.permutation(np.arange(count)) 
   print(np_keys[query_idx])
 
   visualize_exs = True
@@ -705,7 +748,6 @@ def analyze_embedding_retrieval(db):
     f = open(file_path,'w+')
     t = 0
     topK = 10 
-
     
     # THOUGHT: should we be retrieving patches from the same scene graph/image?
     # objects in this will/could share embeddings, eg. [person] right of floor, [person] under table
@@ -720,7 +762,9 @@ def analyze_embedding_retrieval(db):
       # find top K matches
       query = embeds[i]
       query_str = np_keys[i]
-      k[i] = '[query triplet]'
+      query_img = imgs[i]
+      query_orig_idx = i
+      k[i] = '[query triplet]\n' + k[i]
       dist = euclid_dist(np.asarray(query), np.asarray(tmp_embeds))
       #dist = euclid_dist(np.asarray(query), np.asarray(embeds))
       index = dist.argsort(axis=0) # indices of sorted list
@@ -736,18 +780,19 @@ def analyze_embedding_retrieval(db):
       #fig = plt.figure(figsize=(6,3))
       fig = plt.figure(figsize=(12,4))
       plt.axis('off')
-      idx = index[0:topK+1] # show query image
+      idx = np.concatenate(([query_orig_idx],index[0:topK])).tolist() # show query image
       print('QUERY: ', query_str) 
     
       # NOTE: this  VVVVVVV  may only work over small groups of images :( 
       # different triplets showing up from the same image shows that context matters; (triplets don't work in isolation s.t.s.)
       # things that are identical in context are close in embedding space!!!! 
-      # overall query (eg. pooling of predicat embeddings for 1 image)  to do image search?
+      # overall query (eg. pooling of predicate embeddings for 1 image)  to do image search?
       #pdb.set_trace() 
       for n in idx:
         fig.add_subplot(1,len(idx), count)
         sm_img = np.array(imgs[n]).squeeze()
         plt.imshow(sm_img)
+        print('img size: ', sm_img.shape)
         #plt.imshow(sm_img, dtype=np.float32)
         # modify ##plt.xlabel(np_keys[n], fontsize=6)
         plt.xlabel(k[n], fontsize=6)
@@ -1053,6 +1098,7 @@ def main(args):
     #print('Extracting embeddings from train set:')
     #train_results = check_model(args, t, train_loader, model, log_tag='Train', write_images=False)
     print('Extracting embeddings from val test set:')
+    pdb.set_trace()
     val_results = check_model(args, t, val_loader, model, log_tag='Validation', write_images=False)
 
 if __name__ == '__main__':
