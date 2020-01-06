@@ -23,6 +23,7 @@ import math
 from collections import defaultdict
 import random
 import numpy as np
+import numpy.matlib
 import pdb
 import pprint
 import torch
@@ -263,7 +264,7 @@ def build_coco_dsets(args):
     'stuff_whitelist': args.stuff_whitelist,
     'include_other': args.coco_include_other,
     'include_relationships': args.include_relationships,
-    'seed': args.random_seed,   
+    'seed': args.random_seed, # truly random set to 0   
     'heuristics_ordering' : args.heuristics_ordering
   }
 
@@ -317,9 +318,6 @@ def build_loaders(args):
 #def check_model(args, t, loader, model, logger=None, log_tag='', write_images=False):
 def check_model(args, t, loader, model, log_tag='', write_images=False):
 
-  print('check model!!')
-  pdb.set_trace()
- 
   if torch.cuda.is_available():
     float_dtype = torch.cuda.FloatTensor
     long_dtype = torch.cuda.LongTensor
@@ -407,8 +405,8 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
         f = open(file_path,'w')
         ### embedding stuff below here ####
         for i in range(0,num_batch_samples):
-          print('Processing image', i+1, 'of batch size', args.batch_size)
-          f.write('---------- image ' + str(i) + '----------\n')
+          #print('Processing image', i+1, 'of batch size', args.batch_size)
+          #f.write('---------- image ' + str(i) + '----------\n')
 
           # process objects and get embeddings, per image 
           objs_index = np.where(obj_to_img == i)[0] # objects indices for image in batch 
@@ -508,7 +506,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             relationship_data += [triplet]
             print(tuple([subj, pred, obj]))
             #print('--------------------')
-            f.write('(' + db_utils.tuple_to_string(tuple([subj, pred, obj])) + ')\n')
+            #f.write('(' + db_utils.tuple_to_string(tuple([subj, pred, obj])) + ')\n')
            
             # discard singletons 
             if pred == '__in_image__':
@@ -581,7 +579,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
         print('------- single batch processing --------------------------')
         #pdb.set_trace()
      
-    f.close()
+    #f.close()
     # write object database to JSON file
     #pdb.set_trace()
     if args.coco_object_db_json is None and args.coco_object_db_json_write is not None: # if no db specified to load
@@ -623,6 +621,15 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
   ###################
 
   return tuple(out)
+
+# calculate recall
+def calculate_recall(results, count):
+  num_elem = len(results)
+  all_r =[] 
+  for i in range(0,num_elem):
+    r = sum(results[:i+1])/count # this is not the most efficient way to do this!
+    all_r += [r]
+  return np.array(all_r)
 
 # calculate distances between all elements in A
 def calc_dist_matrix(A): 
@@ -684,8 +691,8 @@ def analyze_embedding_retrieval(db):
   imgs = []
   np_imgs = []
   labels = []
+  labels_to_keys = []
  
-  pdb.set_trace()
   # iterate over all triplets in db
   for k in sort_triplets_by_count:
     tr = db_utils.string_to_tuple(k)
@@ -699,12 +706,14 @@ def analyze_embedding_retrieval(db):
 
     # iterate over list of triplets
     for t in range(0, len(db[k])):
-      embeds += [db[k][t]['embed']] # concatenated embeddings! <s,p,o>
+      # report results using this # embeds += [db[k][t]['embed']] # concatenated embeddings! <s,p,o>
       #embeds += db[k][t]['subject_embed'] # good result when subject is fixed - context? interesting analysis to be done here!  
       #embeds += db[k][t]['object_embed']  ### this is best
-      ##embeds += [ db[k][t]['predicate_embed'] ] # too many 0s in topK distances 
+      #embeds += [ db[k][t]['predicate_embed'] ] # too many 0s in topK distances 
       # NOTE: this is hacky programming and should be fixed!
       #embeds += [np.concatenate((db[k][t]['predicate_embed'], db[k][t]['object_embed'][0])).tolist()] # works well!! 
+      # baseline?
+      embeds += [np.concatenate((db[k][t]['subject_embed'][0], db[k][t]['object_embed'][0])).tolist()] # works well!! 
 
       # image patch
       #imgs += [ db[k][t]['image'] ]
@@ -712,6 +721,7 @@ def analyze_embedding_retrieval(db):
       imgs += [ db[k][t]['full_image'] ]
 
       labels += [ k + '\n[' + db[k][t]['subject_supercat'] + '||' + db[k][t]['object_supercat'] + ']' ]
+      labels_to_keys += [k]
   
   # gives all keys in database
   #keys = [k for k in db]
@@ -720,19 +730,42 @@ def analyze_embedding_retrieval(db):
   #sort_keys = sorted(keys, reverse = True)
   
   # select x queries 
-  #query_idx = [0,5,8, 9, 10, 50, 85, 99, 6, 150, 250, 350]
-  #query_idx = [0,5,8, 9, 10, 50, 85, 99, 6]
   #query_idx = np.random.permutation(np.arange(len(embeds)))
-  pdb.set_trace()
-  # how many total triplets are in top 200 (by label)a
-  sc = np.array(sort_count)
-  # large-scale distribution
-  # count = np.sum(sc[np.where(sc > 6)])
-  # long-tail distribution
-  count = np.sum(sc[np.where((sc < 4) & (sc > 1))])
-  query_idx = np.random.permutation(np.arange(count)) 
-  print(np_keys[query_idx])
+  # how many total triplets are in top 200 (by label)
+  # NOOOOOOOOO!!!!!!!!!!!!!
+  num_keys = len(np_keys)
+  sc = np.array(sort_count[:num_keys])
+  #sc = np.array(sort_count)
+  # !!!!!!!!!!!!!!!!!!!!!!1
 
+  print('set up query index')
+  pdb.set_trace() 
+  # set up query index
+  use_longtail = False 
+  if use_longtail == False:
+    # large-scale distribution (per JJ's SG retrieval paper)
+    count_idx = np.where(sc > 1) #np.sum(sc[count_idx])
+    #count_idx = sc[np.where(sc > 6)] #np.sum(sc[count_idx]) # jj
+    count = np.sum(sc[count_idx])
+    start_idx = 0
+    end_idx = count-1
+  else:
+    # long-tail distribution
+    count_idx = np.where((sc < 4) & (sc > 1))
+    count = np.sum(sc[count_idx])
+    # start/end range
+    one_count = np.sum(sc[np.where(sc < 2)])
+    start_idx = np.sum(sc[np.where(sc > 3)]) 
+    end_idx = len(embeds) - one_count - 1
+    count = np.sum(sc[count_idx])
+  # build query index
+  query_idx = np.arange(start_idx, end_idx+1)
+  # large-scale distribution
+  #query_idx = np.random.permutation(np.arange(count)) 
+  # randomize
+  #query_idx = np.random.permutation(query_idx)
+  print(np_keys[:num_keys])
+  print('found ', count, 'query triplets!')
   visualize_exs = True
   print('number of objects in db:', len(embeds))
 
@@ -747,8 +780,11 @@ def analyze_embedding_retrieval(db):
     #file_path = os.path.join(img_dir, 'query_results.txt')
     f = open(file_path,'w+')
     t = 0
+    topK_recall = 100 
     topK = 10 
-    
+    total_recall = []
+    recall = []
+
     # THOUGHT: should we be retrieving patches from the same scene graph/image?
     # objects in this will/could share embeddings, eg. [person] right of floor, [person] under table
     # QUESTION: are embedding from the same SG clustered near each other???
@@ -758,7 +794,7 @@ def analyze_embedding_retrieval(db):
       k = np.copy(np_keys)
       # make local copy of embeds, make query value very large
       tmp_embeds = np.copy(embeds)
-      tmp_embeds[i] = range(len(embeds[0])) 
+      tmp_embeds[i] = 999 
       # find top K matches
       query = embeds[i]
       query_str = np_keys[i]
@@ -768,21 +804,26 @@ def analyze_embedding_retrieval(db):
       dist = euclid_dist(np.asarray(query), np.asarray(tmp_embeds))
       #dist = euclid_dist(np.asarray(query), np.asarray(embeds))
       index = dist.argsort(axis=0) # indices of sorted list
-      print(dist[index[0:topK+1]]) # distance of the top10 sorted queries
-      print(index[0:topK+1])
-      # get topK query strings (including self)
-      #results = np_keys[index[0:topK+1]]
-      results = k[index[0:topK+1]]
+      #print(dist[index[0:topK]]) # distance of the top10 sorted queries
+      #print(index[0:topK+1])
+     
+      # calculate recall
+      results = k[index[0:topK_recall]]
+      qq = np.matlib.repmat(query_str,topK_recall,1).squeeze()
+      rr = (results == qq).astype(int)
+      triplet_count = hist[labels_to_keys[i]]['count']
+      # calculate topK_recalls for 1 query result
+      recall = calculate_recall(rr, triplet_count)
+      total_recall.append(recall)
+      continue
 
       # visualize query and topK images
       count = 1
-      #fig = plt.figure()
-      #fig = plt.figure(figsize=(6,3))
       fig = plt.figure(figsize=(12,4))
       plt.axis('off')
       idx = np.concatenate(([query_orig_idx],index[0:topK])).tolist() # show query image
       print('QUERY: ', query_str) 
-    
+      pdb.set_trace() 
       # NOTE: this  VVVVVVV  may only work over small groups of images :( 
       # different triplets showing up from the same image shows that context matters; (triplets don't work in isolation s.t.s.)
       # things that are identical in context are close in embedding space!!!! 
@@ -799,23 +840,43 @@ def analyze_embedding_retrieval(db):
         #plt.imshow(np.array(imgs[n]))
         # mod ###print('RESULT:' + np_keys[n])
         print('RESULT:' + k[n])
+        if query_str == k[n]:
+          print('=====MATCH=====')
+
         count += 1
  
       print('-------------------------')
+      # this needs to be before plt.show()
+      #plt.savefig(img_name, bbox_inches='tight', pad_inches = 0)
+      #img_name = os.path.join(img_dir, '%06d_query_img.png' % t)
+      plt.show()
     
       #print('QUERY: ', np_keys[i])
       #pprint.pprint(results)
       #f.write('---------- image ' + str(t) + ' ----------\n')
       #f.write('QUERY: ' + np_keys[i] + '\n')
       #f.write('RESULTS:' + str(results) + '\n')
-      #img_name = os.path.join(img_dir, '%06d_query_img.png' % t)
-      # this needs to be before plt.show()
-      #plt.savefig(img_name, bbox_inches='tight', pad_inches = 0)
-      plt.show()
       pdb.set_trace()
       t += 1
-
-  f.close()
+   
+    # calculate average recall
+    mean_recall = np.mean(total_recall, axis=0) # column-wise
+    np.savetxt('mean_recall_topK' + str(topK_recall)+ '_' + args.model_label + '.txt', mean_recall)
+    # plot recall
+    fig = plt.figure()
+    plt.style.use('seaborn-whitegrid')
+    plt.ylim(0,1.0)
+    plt.xlim(0, topK_recall)
+    plt.xlabel('k')
+    plt.ylabel('Recall at k')
+    x = np.arange(1,topK_recall+1)
+    plt.plot(x, mean_recall)
+    plt.show()
+    pdb.set_trace()
+    print('RECALL: r@1 =', mean_recall[0], 'r@25 = ', mean_recall[19], 'r@50 = ', mean_recall[49])
+    pdb.set_trace()
+    
+  #f.close()
 
 ###
 def analyze_hierarchical_clustering(mean_embed, word_embed, class_ids, class_labels, mean_embed_2d, label):
@@ -877,9 +938,6 @@ def analyze_hierarchical_clustering(mean_embed, word_embed, class_ids, class_lab
     #plt.savefig(filename, dpi=1000, bbox_inches='tight')
     plt.savefig(filename, dpi=300, bbox_inches='tight')
   plt.show()
-
-  # FOO
-
    
   # assign dendogram clusters to tsne plot/points
   #pdb.set_trace()
@@ -1080,7 +1138,7 @@ def main(args):
   model.load_state_dict(checkpoint['model_state'], strict=False)
   model.eval()
   model.to(device)
- 
+
   vocab, train_loader, val_loader = build_loaders(args)
   # add supercat to model vocab 
   model.vocab['object_idx_to_supercat'] = vocab['object_idx_to_supercat']
@@ -1098,7 +1156,6 @@ def main(args):
     #print('Extracting embeddings from train set:')
     #train_results = check_model(args, t, train_loader, model, log_tag='Train', write_images=False)
     print('Extracting embeddings from val test set:')
-    pdb.set_trace()
     val_results = check_model(args, t, val_loader, model, log_tag='Validation', write_images=False)
 
 if __name__ == '__main__':
