@@ -113,16 +113,16 @@ class VgSceneGraphDataset(Dataset):
     obj_idxs_without_rels = list(obj_idxs_without_rels)
 
     ###############
-    if self.seed != 0:  
-      random.seed(self.seed)  
+    #if self.seed != 0:  
+    #  random.seed(self.seed)  
       #################
     if len(obj_idxs) > self.max_objects - 1:
       obj_idxs = obj_idxs[:self.max_objects]
       #obj_idxs = random.sample(obj_idxs, self.max_objects)
 
     ###############
-      if self.seed != 0:  
-        random.seed(self.seed)  
+    #  if self.seed != 0:  
+    #    random.seed(self.seed)  
       #################  
     if len(obj_idxs) < self.max_objects - 1 and self.use_orphaned_objects:
       num_to_add = self.max_objects - 1 - len(obj_idxs)
