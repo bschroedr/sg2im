@@ -140,6 +140,8 @@ parser.add_argument('--model_label', default=None, type=str)
 parser.add_argument('--triplet_obj_whitelist', default=None, type=str)
 # load triplet embeddings db from file
 parser.add_argument('--coco_triplet_db_json', default=None, type=str)
+# filter by object type /per 
+parser.add_argument('--obj_class', default=None, type=str)
 
 # Generator options
 parser.add_argument('--mask_size', default=16, type=int) # Set this to 0 to use no masks
@@ -343,7 +345,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
      print('Loading triplet database: ', args.coco_triplet_db_json)
      triplet_db = db_utils.read_fr_JSON(args.coco_triplet_db_json)
      # if triplet object whitelist, strip out keys without this object
-     skip_obj_db = True
+     skip_obj_db = True # don't process anything in triplet/object processing loops; don't run model
   else:
      triplet_db = None
   ## if specified load saved object embeddings
@@ -385,7 +387,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
         # Run model without GT boxes to get predicted layout masks
         #model_out = model(objs, triples, obj_to_img)
         #layout_boxes, layout_masks = model_out[5], model_out[6]
-
+       
         num_batch_samples = imgs.size(0)
         num_samples += num_batch_samples
         if num_samples >= args.num_val_samples:
@@ -450,6 +452,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             #XXXX 
             #f.write('obj ' + str(i) + ': ' + name + '\n')  
 
+          #continue
           # test if db is serializable
           #pdb.set_trace() 
           #import json
@@ -464,6 +467,8 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
           np_triple_boxes_gt = np.array(triple_boxes_gt).astype(float)
           tr_img_boxes = np_triple_boxes_gt[tr_index]
           assert len(tr_img) == len(tr_img_boxes)
+
+          print(tr_img)
 
 	  # vocab['object_idx_to_name'], vocab['pred_idx_to_name']
 	  # s,o: indices for "objs" array (yields 'object_idx' for 'object_idx_to_name')
@@ -486,12 +491,6 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             else:
               subj_supercat = model.vocab['object_idx_to_supercat'][str(cat_id)]
 
-            # object whitelist: select only these triplets for triplet DB
-            if args.triplet_obj_whitelist is not None and subj != args.triplet_obj_whitelist: 
-              continue 
-            else:
-              print('>>> processing subject: ', subj)
-
             pred = np.array(model.vocab['pred_idx_to_name'])[p[n]]
             obj_index = o[n]
             obj = np.array(model.vocab['object_idx_to_name'])[objs[obj_index]]
@@ -503,9 +502,17 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
               obj_supercat = model.vocab['object_idx_to_supercat'][str(cat_id)]
             #print(obj_supercat)
 
-            triplet = tuple([subj, pred, obj])
+            # object whitelist: select only these triplets for triplet DB
+            if args.triplet_obj_whitelist is not None and subj != args.triplet_obj_whitelist and obj != args.triplet_obj_whitelist: 
+              continue 
+            else:
+              print('>>> processing object class: ', args.triplet_obj_whitelist)
+
+            triplet = tuple([subj, pred, obj]) 
             relationship_data += [triplet]
             print(tuple([subj, pred, obj]))
+            print(tr_img[n])
+            pdb.set_trace()
             #print('--------------------')
             #f.write('(' + db_utils.tuple_to_string(tuple([subj, pred, obj])) + ')\n')
            
@@ -548,7 +555,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             relationship['subject_embed'] = subj_embed
             relationship['predicate_embed'] = pred_embed
             relationship['object_embed'] = obj_embed
-            relationship['embed'] = pooled_embed
+            #######relationship['embed'] = pooled_embed
 
             # image patch
             H, W = args.image_size
@@ -557,7 +564,8 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             # print('batch index = ', batch_index)
             #print(relationship['super_bbox'])
             patch = np_imgs[batch_index][y0:y1 + 1, x0:x1+1]
-            #plt.imshow(patch); plt.show()
+            plt.imshow(patch); plt.show()
+            pdb.set_trace()
             # np arrays are not serializable
             # to recover np array: patch = np.array(relationship['image'])
             #relationship['image'] = [patch.tolist()] 
@@ -584,10 +592,11 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
     # write object database to JSON file
     #pdb.set_trace()
     if args.coco_object_db_json is None and args.coco_object_db_json_write is not None: # if no db specified to load
+      pdb.set_trace()
       print('Writing database to file: ', args.coco_object_db_json_write)
       db_utils.write_to_JSON(object_db, args.coco_object_db_json_write)
     # write triplet database to JSON file
-    #pdb.set_trace()
+    pdb.set_trace()
     if args.coco_triplet_db_json is None and triplet_db is not None: 
       if args.triplet_obj_whitelist is not None:
         triplet_label = args.triplet_obj_whitelist + '.json' # tree, person
@@ -694,6 +703,7 @@ def analyze_embedding_retrieval(db):
   labels = []
   labels_to_keys = []
   subjects = []
+  objects = []
 
   # randomize triplet index
   su = []
@@ -707,7 +717,8 @@ def analyze_embedding_retrieval(db):
   # iterate over all triplets in db
   for k in sort_triplets_by_count:
     tr = db_utils.string_to_tuple(k)
-    subj = tr[0]
+    subj = tr[0] # subject
+    obj = tr[2] # object
     #if subj != 'table':
     #if subj != 'person':
     #if subj != 'horse':
@@ -740,6 +751,7 @@ def analyze_embedding_retrieval(db):
       ##labels += [ k + '\n[' + db[k][t]['subject_supercat'] + '||' + db[k][t]['object_supercat'] + ']' ]
       labels_to_keys += [k]
       subjects += [subj]
+      objects += [obj]
 
   # randomize predicate
   #triplet_idx = np.random.permutation(len(pr))
@@ -762,7 +774,6 @@ def analyze_embedding_retrieval(db):
   # !!!!!!!!!!!!!!!!!!!!!!1
 
   print('set up query index')
-  pdb.set_trace() 
   # set up query index
   # use end of long tail distribution
   use_longtail = False  
@@ -789,9 +800,9 @@ def analyze_embedding_retrieval(db):
   # randomize
   #query_idx = np.random.permutation(query_idx)
   print(np_keys[:num_keys])
-  print('found ', count, 'query triplets!')
+  print('found ', count, 'query triplets to add to db!')
   visualize_exs = True
-  print('number of objects in db:', len(embeds))
+  print('number of unfiltered triplets:', len(embeds))
 
   if(visualize_exs):
     #img_dir = args.output_dir + '/query_results'
@@ -822,11 +833,19 @@ def analyze_embedding_retrieval(db):
       # find top K matches
       # filter by subject, such as person
       subj = subjects[i]
-      if subj != 'person': 
-      #if subj != 'dog': 
-      #if subj != 'zebra': 
-      #if subj != 'skateboard': # ~25 instances
-        continue
+      obj = objects[i]
+      #obj_class = 'person' 
+      #obj_class = 'tree' 
+      #obj_class = 'zebra' 
+      #obj_class = 'truck' 
+      #obj_class = 'skateboard' # ~25 instances
+      #obj_class = 'skis' # ~25 instances
+      #obj_class = 'laptop' # ~25 instances
+      #obj_class = 'kite' # ~25 instances
+      #obj_class = 'spoon' # ~25 instances
+      if args.obj_class is not None:
+        if subj != args.obj_class and obj != args.obj_class: 
+          continue
       query = embeds[i]
       query_str = np_keys[i]
       query_img = imgs[i]
@@ -835,10 +854,9 @@ def analyze_embedding_retrieval(db):
       dist = euclid_dist(np.asarray(query), np.asarray(tmp_embeds))
       index = dist.argsort(axis=0) # indices of sorted list
       #print(dist[index[0:topK]]) # distance of the top10 sorted queries
-      #print(index[0:topK+1])
      
       # calculate recall
-      find_recall = False
+      find_recall = True 
       if(find_recall):
         # Random result
         #index = np.random.permutation(index) # randomize sorted index
@@ -849,8 +867,9 @@ def analyze_embedding_retrieval(db):
         # calculate topK_recalls for 1 query result
         recall = calculate_recall(rr, triplet_count)
         total_recall.append(recall)
+        print(query_str)
         print('query idx = ', i)
-        # continue
+        ##continue
 
       # visualize query and topK images
       count = 1
@@ -1176,10 +1195,10 @@ def main(args):
   model.to(device)
 
 
-  #vocab, train_loader, val_loader = build_loaders(args)
-  val_loader = None
+  vocab, train_loader, val_loader = build_loaders(args)
+  #val_loader = None
   # add supercat to model vocab 
-  #model.vocab['object_idx_to_supercat'] = vocab['object_idx_to_supercat']
+  model.vocab['object_idx_to_supercat'] = vocab['object_idx_to_supercat']
   
   if not os.path.isdir(args.output_dir):
     os.mkdir(args.output_dir)
