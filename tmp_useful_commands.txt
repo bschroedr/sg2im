@@ -1,0 +1,46 @@
+
+* to train single obj contour net
+
+python scripts/train_layout_contours_debug.py --output_dir ./TEST/ --mask_loss_weight 1    --batch_size 1  --triplet_bboxes_pred_loss_weight 10 --triplet_mask_loss_weight 10 --loader_num_workers 0
+
+
+* img agnostic
+
+python scripts/train_layout_ia.py --output_dir ~/layout_models/OUTPUT_DIR_COCO_LAYOUT_8PTAGNOST15.0__MASKMULTI10.0/ --mask_loss_weight 1 --triplet_box_net 1 --triplet_mask_size 32 --batch_size 16 --triplet_bboxes_pred_loss_weight 15 --triplet_mask_loss_weight 10 --check_val_metrics_every 5000 --checkpoint_start_from ~/layout_models/OUTPUT_DIR_COCO_LAYOUT_8PTAGNOST15.0__MASKMULTI10.0/checkpoint_with_model_20000.pt
+
+* best model (8 pt + multi mask + 1.0 mask weight)
+
+python scripts/train_layout.py --output_dir ~/layout_models/OUTPUT_DIR_COCO_LAYOUT_8PT_MASKMULTI10.0/ --mask_loss_weight 1.0 --triplet_box_net 1 --triplet_mask_size 32 --batch_size 16 --triplet_bboxes_pred_loss_weight 10 --triplet_mask_loss_weight 10 --check_val_metrics_every 5000
+
+* best model with single contour and 'pseudo box'
+
+python scripts/train_layout_contours_debug_huber.py --output_dir ~/layout_models/OUTPUT_DIR_COCO_LAYOUT_EXPTCONTOUR010.0_PSEUDOBOX10.0_HUBER0.1/ --batch_size 16 --mask_loss_weight 1.0 --triplet_contours_pred_loss_weight 10 --bbox_pred_loss_weight 10 --huber_loss_delta 0.1 --check_val_metrics_every 5000 
+
+* to test single contour model with extract embeddings 
+
+python scripts/extract_embeddings_val_cont.py --checkpoint=/nfs/site/home/brigitsc/layout_models/OUTPUT_DIR_COCO_LAYOUT_SINGLE_CONTOUR//checkpoint_with_model_10000.pt --output_dir /nfs/site/home/brigitsc/layout_models/OUTPUT_DIR_COCO_LAYOUT_SINGLE_CONTOUR// --batch_size 3 --num_val_samples 4 --image_size 64,64 --loader_num_workers 0
+
+python scripts/extract_embeddings_val_cont.py --checkpoint=/nfs/site/home/brigitsc/layout_models/OUTPUT_DIR_COCO_LAYOUT_EXPTCONTOUR010.0_PSEUDOBOX10.0_HUBER0.5/checkpoint_with_model_40000.pt --output_dir /nfs/site/home/brigitsc/layout_models/OUTPUT_DIR_COCO_LAYOUT_EXPTCONTOUR010.0_PSEUDOBOX10.0_HUBER0.5/ --batch_size 1 --num_val_samples 12 --image_size 64,64
+
+(best model with object localization)
+
+python scripts/extract_embeddings_val_cont.py --checkpoint=/nfs/site/home/brigitsc/layout_models/OUTPUT_DIR_COCO_LAYOUT_EXPTCONTOUR010.0_PSEUDOBOX10.0_HUBER0.1/checkpoint_with_model_160000.pt --output_dir /nfs/site/home/brigitsc/layout_models/OUTPUT_DIR_COCO_LAYOUT_EXPTCONTOUR010.0_PSEUDOBOX10.0_HUBER0.1/ --batch_size 1 --num_val_samples 500 --image_size 256,256 --shuffle 1
+
+* extract embeddings val for best model
+
+python scripts/extract_embeddings_val.py --checkpoint=/nfs/site/home/brigitsc/layout_models/OUTPUT_DIR_COCO_LAYOUT_8PT_MASKMULTI10.0/checkpoint_with_model_140000.pt --output_dir /nfs/site/home/brigitsc/layout_models/OUTPUT_DIR_COCO_LAYOUT_8PT_MASKMULTI10.0/ --batch_size 1 --num_val_samples 500 --image_size 256,256  --triplet_mask_size 32 --triplet_box_net 1 --shuffle_val 1
+
+
+* tsne embeddings
+
+python scripts/extract_embeddings_val_tsne.py --checkpoint=/nfs/site/home/brigitsc/layout_models/OUTPUT_DIR_COCO_LAYOUT_8PT_MASKMULTI10.0/checkpoint_with_model_140000.pt --output_dir /nfs/site/home/brigitsc/layout_models/OUTPUT_DIR_COCO_LAYOUT_8PT_MASKMULTI10.0/ --batch_size 1 --num_val_samples 500 --image_size 256,256  --triplet_mask_size 32 --triplet_box_net 1 --shuffle_val 1
+
+* tnse embedding without heuristics ordering
+
+python scripts/extract_embeddings_val_tsne.py --checkpoint=/nfs/site/home/brigitsc/layout_models/OUTPUT_DIR_COCO_LAYOUT_8PT_MASKMULTI10.0_NOAUG_RAND/checkpoint_with_model_100000.pt --output_dir /nfs/site/home/brigitsc/layout_models/OUTPUT_DIR_COCO_LAYOUT_8PT_MASKMULTI10.0_NOAUG_RAND/ --batch_size 1 --num_val_samples 33 --image_size 256,256  --triplet_mask_size 32 --triplet_box_net 1  --heuristics_ordering 0
+
+* embedding retrieval with saved triplet db
+
+OMP_NUM_THREADS=16 MKL_NUM_THREADS=16 python scripts/extract_embeddings_val_tsne.py --checkpoint=./layout_models/OUTPUT_DIR_COCO_LAYOUT_8PT_MASKMULTI10.0_NOAUG_RAND_VERIFY/checkpoint_with_model_70000.pt --output_dir ./layout_models/OUTPUT_DIR_COCO_LAYOUT_8PT_MASKMULTI10.0_NOAUG_RAND_VERIFY/ --batch_size 16 --num_val_samples 65 --image_size 64,64  --triplet_mask_size 32 --triplet_box_net 1  --heuristics_ordering 0  --loader_num_workers 16 --coco_triplet_db_json './coco_triplet_db.json' 
+
+OMP_NUM_THREADS=16 MKL_NUM_THREADS=16 python scripts/extract_embeddings_val_tsne.py --checkpoint=./layout_models/TR_8PT_MULTIMASK_BEST/checkpoint_with_model_160000.pt --output_dir ./layout_models/OUTPUT_DIR_COCO_LAYOUT_8PT_MASKMULTI10.0_NOAUG_RAND_VERIFY/ --batch_size 16 --num_val_samples 1025 --image_size 64,64  --triplet_mask_size 32 --triplet_box_net 1  --heuristics_ordering 0  --coco_triplet_db_json './coco_triplet_db_val_TR_8PT_MULTIMASK_BEST.json' --random_seed 0 --model_label 'multimap_zebra'

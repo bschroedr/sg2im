@@ -1,0 +1,60 @@
+python scripts/train.py --mask_loss_weight 1.0 --output_dir OUTPUT_DIR
+
+python scripts/train.py --l1_pixel_loss_weight 1 --perceptual_loss_weight 0.001 --mask_loss_weight 1.0 --output_dir OUTPUT_DIR
+
+python scripts/train.py --sg_context_dim 16 --mask_loss_weight 1.0 --output_dir OUTPUT_DIR
+
+python scripts/train.py --sg_context_dim 16 --mask_loss_weight 1.0 --output_dir OUTPUT_DIR
+
+tensorboard --logdir=/ec/fm/disks/aipg_lab_home_pool_02/subarnat/vision-research/logs 
+
+python scripts/run_model.py --checkpoint copied_from_server/checkpoint_with_model.pt --scene_graphs scene_graphs_test/figure_5_coco.json --output_dir out_test --draw_scene_graphs 1
+
+* original save results script (from SLACK):
+
+python scripts/save_val_results.py --checkpoint=SG_PF_MA_NP/checkpoint_with_model.pt --output_dir SG_PF_MA_NP/
+
+* to train with optimal TRIPLET parameters:
+
+python scripts/train_layout_debug.py --output_dir ./TEST/ --mask_loss_weight 1  --triplet_box_net 1 --triplet_mask_size 32  --batch_size 16  --triplet_bboxes_pred_loss_weight 10 --triplet_mask_loss_weight 10 --check_val_metrics_every 5000
+
+* to run DB/extract embeddings for VG:
+
+python scripts/extract_embeddings_val_vg.py --checkpoint=OUTPUT_DIR_VG_NEW/checkpoint_with_model.pt --output_dir OUTPUT_DIR_VG_NEW/ --batch_size 1
+
+(to test with small batch & upsample image)
+
+
+* to run DB/extract embeddings for VG:
+
+python scripts/extract_embeddings_val_vg.py --dataset coco_stuff --checkpoint=/checkpoint_with_model.pt --output_dir OUTPUT_DIR_VG_NEW/ --batch_size 5 --num_val_samples 6 --image_size 256,256
+
+to train layout model only:
+
+export CUDA_VISIBLE_DEVICES=3  // whatever devicce is available
+python scripts/train_layout.py  --output_dir train_output_dir
+
+* to run check validation error on model (for overfitting)
+
+python scripts/train_layout_8ptembed_mask.py --output_dir ./val_test --triplet_bboxes_pred_loss_weight 10 --batch_size 16 --mask_loss_weight 1.0 --checkpoint_start_from ./OUTPUT_DIR_COCO_LAYOUT_8PTEMBED_MASK_MASKW1.0/checkpoint_with_model.pt --coco_view_validation_error 1
+
+#python scripts/train_layout.py --output_dir val_test --checkpoint_start_from OUTPUT_DIR_COCO_LAYOUT_8PT/checkpoint_with_model.pt --coco_train_instances_json /dataset/coco_stuff/annotations/instances_train2017.json
+
+--checkpoint_start_from  output_dir/checkpoint_with_model.pt
+--coco_train_instances_json annotations/instances_train2017.json
+
+* to debug coco.py etc
+
+python scripts/extract_embeddings_val.py  --checkpoint=OUTPUT_DIR_COCO_LAYOUT_H//checkpoint_with_model.pt --output_dir OUTPUT_DIR_COCO_LAYOUT_H/ --batch_size 1 --num_val_samples 2 --image_size 256,256 --loader_num_workers 0
+
+* to debug coco.py etc
+
+python scripts/extract_embeddings_val.py  --checkpoint=OUTPUT_DIR_COCO_LAYOUT_H//checkpoint_with_model.pt --output_dir OUTPUT_DIR_COCO_LAYOUT_H/ --batch_size 1 --num_val_samples 2 --image_size 256,256 --loader_num_workers 0
+
+* to train network with triplet mask prediction
+
+python scripts/train_layout_8pt.py  --output_dir ./OUTPUT_DIR_COCO_LAYOUT_8PT_TRL10_REDUX --triplet_bboxes_pred_loss_weight 10 --batch_size 16
+
+* to train with validation metrics
+
+python scripts/train_layout_contours_mask.py --output_dir ./OUTPUT_DIR_COCO_LAYOUT_8PT_MASKCONTOURS_CONTOURSW5.0/ --triplet_bboxes_pred_loss_weight 10 --batch_size 16 --mask_loss_weight 1.0 --check_val_metrics_every 2000 # default every 10K
