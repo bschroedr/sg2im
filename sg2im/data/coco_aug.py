@@ -28,7 +28,7 @@ import pycocotools.mask as mask_utils
 
 from .utils import imagenet_preprocess, Resize, compute_object_centers, determine_box_relation
 
-COCO_DIR = os.environ.get('COCO_DIR', '/Users/brigitsc/sandbox/sg2im/datasets/coco/')
+COCO_DIR = os.environ.get('COCO_DIR', '/home/brigit/sandbox/sg2im/datasets/coco/')
 #COCO_DIR = os.environ.get('COCO_DIR', '/dataset/coco_stuff/')
 COCO_TRAIN_DIR = os.path.join(COCO_DIR, 'images/train2017')
 COCO_VAL_DIR = os.path.join(COCO_DIR, 'images/val2017')
@@ -454,15 +454,15 @@ class CocoSceneGraphDataset(Dataset):
 
       # by default, randomize
       ###############
-      if self.seed != 0:  
-        random.seed(self.seed)  
+      #if self.seed != 0:  
+      #  random.seed(self.seed)  
       #################
   
       other = random.choice(choices)
 
       ##################
-      if self.seed != 0:  
-        random.seed(self.seed) 
+      #if self.seed != 0:  
+      #  random.seed(self.seed) 
       ##################  
       
       if random.random() > 0.5:

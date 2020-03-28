@@ -30,7 +30,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import torchvision.models as models
 
-
+# symmetric/heuristic data augmentation
 from sg2im.data.coco_aug import CocoSceneGraphDataset, coco_collate_fn
 #from sg2im.data.coco import CocoSceneGraphDataset, coco_collate_fn
 from sg2im.data.vg import VgSceneGraphDataset, vg_collate_fn
@@ -55,8 +55,8 @@ UP_LINE_STD = '\033[F'
 
 #torch.backends.cudnn.benchmark = True
 
-VG_DIR = os.path.expanduser('/dataset/vg') 
-COCO_DIR = os.path.expanduser('/dataset/coco_stuff')
+VG_DIR = os.path.expanduser('/home/brigit/sandbox/sg2im/datasets/vg') 
+COCO_DIR = os.path.expanduser('/home/brigit/sandbox/sg2im/datasets/coco_stuff')
 #COCO_DIR = os.path.expanduser('/other/coco_stuff')
 
 
@@ -679,6 +679,12 @@ def calculate_model_losses(args, skip_pixel_loss, model, img, img_pred,
 
 
 def main(args):
+
+  device = torch.device('cuda:0')
+  if not torch.cuda.is_available():
+   print('WARNING: CUDA not available; falling back to CPU')
+   torch.cuda.current_device()
+ 
   print(args)
   check_args(args)
   float_dtype = torch.cuda.FloatTensor

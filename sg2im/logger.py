@@ -8,6 +8,7 @@ try:
 except ImportError:
     from io import BytesIO         # Python 3.x
 
+# https://github.com/eriklindernoren/PyTorch-YOLOv3/commit/930c5872eea3d22233805f3f693dd5c9a9892707
 
 class Logger(object):
     
