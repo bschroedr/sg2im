@@ -500,11 +500,11 @@ def add_bbox_info(bboxes):
   return bboxes_info
 
 
-def draw_triplet_masks(args, num_vocab_objs, objs, obj_to_img, triple_to_img, the_boxes, masks_pred):
+def draw_triplet_masks(args, model, num_vocab_objs, objs, obj_to_img, triples, triple_to_img, the_boxes, masks_pred):
   img_size = args.image_size 
   #masks = torch.zeros([num_vocab_objs, img_size, img_size], dtype=torch.float32)	
   # rescale boxes to image dimensions
-  tboxes = the_boxes * img_size
+  tboxes = the_boxes * img_size[0]
   # all triplet masks per batch
   triplet_masks = []
   tmasks = []
@@ -515,7 +515,7 @@ def draw_triplet_masks(args, num_vocab_objs, objs, obj_to_img, triple_to_img, th
     # process objects and get embeddings, per image 
     objs_index = np.where(obj_to_img.cpu() == i)[0] # objects indices for image in batch 
     objs_img = objs[objs_index] # object class id labels for image
-    obj_names = np.array(model.vocab['object_idx_to_name'])[objs_img.cpu().numpy()] # index with object class index
+    #obj_names = np.array(model.vocab['object_idx_to_name'])[objs_img.cpu().numpy()] # index with object class index
     objs_boxes = tboxes[objs_index]
     objs_masks = masks_pred[objs_index]
     num_objs = len(objs_index)
@@ -541,77 +541,77 @@ def draw_triplet_masks(args, num_vocab_objs, objs, obj_to_img, triple_to_img, th
       tmasks.append(mask)
       mask = []
     
-      # create triplet masks for image
-      # process all triples for in image
-      tr_index = np.where(triple_to_img.cpu().numpy() == i)
-      tr_img = triples[tr_index] # s/p/o
-      num_triples = tr_img.size(0)
-      s, p, o = tr_img.chunk(3, dim=1)
-      s_boxes, o_boxes = tboxes[s], tboxes[o]
-      triplet_boxes = torch.cat([torch.squeeze(s_boxes), torch.squeeze(o_boxes)], dim=1)
+    # create triplet masks for image
+    # process all triples for in image
+    tr_index = np.where(triple_to_img.cpu().numpy() == i)
+    tr_img = triples[tr_index] # s/p/o
+    num_triples = tr_img.size(0)
+    s, p, o = tr_img.chunk(3, dim=1)
+    s_boxes, o_boxes = tboxes[s], tboxes[o]
+    triplet_boxes = torch.cat([torch.squeeze(s_boxes), torch.squeeze(o_boxes)], dim=1)
 
-      # iterate over eact triplet to create triplet mask 
-      for n in range(0, num_triples):
-        s_idx, o_idx = s[n], o[n] # index into object-related arrays
-        s_mask = tmasks[s_idx] # subject mask 
-        o_mask = tmasks[o_idx] # object mask 
-        # find dimensions of encapsulating triplet superbox 
-        min_x = np.min([triplet_boxes[n][0], triplet_boxes[n][4]])
-        min_y = np.min([triplet_boxes[n][1], triplet_boxes[n][5]])
-        max_x = np.max([triplet_boxes[n][2], triplet_boxes[n][6]])
-        max_y = np.max([triplet_boxes[n][3], triplet_boxes[n][7]])
-        min_x, min_y = int(np.round(min_x.cpu())), int(np.round(min_y.cpu()))
-        max_x, max_y = int(np.round(max_x.cpu())), int(np.round(max_y.cpu()))
-        h = max_y - min_y + 1
-        w = max_x - min_x + 1
+    # iterate over eact triplet to create triplet mask 
+    for n in range(0, num_triples):
+      s_idx, o_idx = s[n], o[n] # index into object-related arrays
+      s_mask = tmasks[s_idx] # subject mask 
+      o_mask = tmasks[o_idx] # object mask 
+      # find dimensions of encapsulating triplet superbox 
+      min_x = np.min([triplet_boxes[n][0], triplet_boxes[n][4]])
+      min_y = np.min([triplet_boxes[n][1], triplet_boxes[n][5]])
+      max_x = np.max([triplet_boxes[n][2], triplet_boxes[n][6]])
+      max_y = np.max([triplet_boxes[n][3], triplet_boxes[n][7]])
+      min_x, min_y = int(np.round(min_x.cpu())), int(np.round(min_y.cpu()))
+      max_x, max_y = int(np.round(max_x.cpu())), int(np.round(max_y.cpu()))
+      h = max_y - min_y + 1
+      w = max_x - min_x + 1
 
-        # create empty mask size of superbox
-        triplet_mask_size = 32
-        triplet_mask = np.zeros((h, w))
-        # superbox shift offset
-        dx, dy = min_x, min_y
-        bbs = np.array(np.round(triplet_boxes[n].cpu())).astype(int)
-        # subject masks
-        mask_h, mask_w  = s_mask.shape[0], s_mask.shape[1]
-        x0, y0 = bbs[0] - dx, bbs[1] - dy
+      # create empty mask size of superbox
+      triplet_mask_size = 32
+      triplet_mask = np.zeros((h, w))
+      # superbox shift offset
+      dx, dy = min_x, min_y
+      bbs = np.array(np.round(triplet_boxes[n].cpu())).astype(int)
+      # subject masks
+      mask_h, mask_w  = s_mask.shape[0], s_mask.shape[1]
+      x0, y0 = bbs[0] - dx, bbs[1] - dy
+      x0, y0 = max(x0, 0), max(y0, 0)
+      x1, y1 = x0 + mask_w, y0 + mask_h # this should be ok: w = 5, [0:5]
+      x1, y1 = min(x1, w), min(y1, h)
+      assert triplet_mask[y0:y1, x0:x1].shape == s_mask[0:y1 - y0, 0:x1 - x0].shape, print('s_mask mismatch shape: ', 
+                          triplet_mask[y0:y1, x0:x1].shape, s_mask[0:y1 - y0, 0:x1 - x0].shape)
+      triplet_mask[y0:y1, x0:x1] = s_mask[0:y1 - y0, 0:x1 - x0]
+      # resize and label subject points as value 1
+      triplet_mask = imresize(255.0 * triplet_mask, (triplet_mask_size, triplet_mask_size),
+                     mode='constant', anti_aliasing=True)
+      triplet_mask = (triplet_mask > 128).astype(np.int64)
+
+      # object mask 
+      if(model.vocab['object_idx_to_name'][objs[o[n]]] != '__image__'):
+        mask_h, mask_w  = o_mask.shape[0], o_mask.shape[1]
+        x0, y0 = bbs[4] - dx, bbs[5] - dy
         x0, y0 = max(x0, 0), max(y0, 0)
         x1, y1 = x0 + mask_w, y0 + mask_h # this should be ok: w = 5, [0:5]
         x1, y1 = min(x1, w), min(y1, h)
-        assert triplet_mask[y0:y1, x0:x1].shape == s_mask[0:y1 - y0, 0:x1 - x0].shape, print('s_mask mismatch shape: ', 
-                            triplet_mask[y0:y1, x0:x1].shape, s_mask[0:y1 - y0, 0:x1 - x0].shape)
-        triplet_mask[y0:y1, x0:x1] = s_mask[0:y1 - y0, 0:x1 - x0]
-        # resize and label subject points as value 1
-        triplet_mask = imresize(255.0 * triplet_mask, (triplet_mask_size, triplet_mask_size),
-                       mode='constant', anti_aliasing=True)
-        triplet_mask = (triplet_mask > 128).astype(np.int64)
-
-        # object mask 
-        if(model.vocab['object_idx_to_name'][objs[o[n]]] != '__image__'):
-          mask_h, mask_w  = o_mask.shape[0], o_mask.shape[1]
-          x0, y0 = bbs[4] - dx, bbs[5] - dy
-          x0, y0 = max(x0, 0), max(y0, 0)
-          x1, y1 = x0 + mask_w, y0 + mask_h # this should be ok: w = 5, [0:5]
-          x1, y1 = min(x1, w), min(y1, h)
-          o_triplet_mask = np.zeros((h, w))
-          o_triplet_mask[y0:y1, x0:x1] = o_mask[0:y1 - y0, 0:x1 - x0]
-          o_triplet_mask = imresize(255.0 * o_triplet_mask, (triplet_mask_size, triplet_mask_size),
-                           mode='constant', anti_aliasing=True)
-          o_triplet_mask = (o_triplet_mask > 128).astype(np.int64)
-          # OR triplet masks to deal with areas of overlap
-          triplet_mask = np.logical_or(triplet_mask, o_triplet_mask).astype(int)
-          and_mask = np.logical_and(triplet_mask, o_triplet_mask).astype(int)
-          # label object pixel value 2
-          triplet_mask += o_triplet_mask
-          # randomly switch overlap
-          #if random.random() > 0.5:
-          #  triplet_mask -= and_mask
+        o_triplet_mask = np.zeros((h, w))
+        o_triplet_mask[y0:y1, x0:x1] = o_mask[0:y1 - y0, 0:x1 - x0]
+        o_triplet_mask = imresize(255.0 * o_triplet_mask, (triplet_mask_size, triplet_mask_size),
+                         mode='constant', anti_aliasing=True)
+        o_triplet_mask = (o_triplet_mask > 128).astype(np.int64)
+        # OR triplet masks to deal with areas of overlap
+        triplet_mask = np.logical_or(triplet_mask, o_triplet_mask).astype(int)
+        and_mask = np.logical_and(triplet_mask, o_triplet_mask).astype(int)
+        # label object pixel value 2
+        triplet_mask += o_triplet_mask
+        # randomly switch overlap
+        #if random.random() > 0.5:
+        #  triplet_mask -= and_mask
  
-        #import matplotlib.pyplot as plt
-        #fig = plt.figure()
-        #plt.imshow(triplet_mask)
-        #plt.show()
-        triplet_mask = torch.from_numpy(triplet_mask)
-        triplet_masks.append(triplet_mask)
+      #import matplotlib.pyplot as plt
+      #fig = plt.figure()
+      #plt.imshow(triplet_mask)
+      #plt.show()
+      triplet_mask = torch.from_numpy(triplet_mask)
+      triplet_masks.append(triplet_mask)
 
   triplet_masks = torch.stack(triplet_masks)
   return triplet_masks
@@ -658,7 +658,7 @@ def check_model(args, t, loader, model, logger=None, log_tag='', write_images=Fa
         max_y = np.max([tb[:,3].cpu().numpy(), tb[:,7].cpu().numpy()], axis=0)
         triplet_superboxes = torch.stack([torch.from_numpy(min_x), torch.from_numpy(min_y), torch.from_numpy(max_x), torch.from_numpy(max_y)]).permute(1,0).cuda()
 
-      triplet_masks = draw_triplet_masks(args, len(model.vocab['object_name_to_idx']), objs, obj_to_img, triple_to_img, boxes, masks_pred)
+      triplet_masks = draw_triplet_masks(args, model, len(model.vocab['object_name_to_idx']), objs, obj_to_img, triples, triple_to_img, boxes, masks_pred)
 
       # for layout model, we don't care about these
       #skip_pixel_loss = False
@@ -993,124 +993,8 @@ def main(args):
         # boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores = model_out
   
       masks_pred = masks_pred.detach()
-
-      def draw_triplet_masks(num_vocab_objs, objs, obj_to_img, triple_to_img, the_boxes, masks_pred):
-        img_size = imgs[0].size(1)
-        #masks = torch.zeros([num_vocab_objs, img_size, img_size], dtype=torch.float32)	
-        # rescale boxes to image dimensions
-        tboxes = the_boxes * img_size
-        # all triplet masks per batch
-        triplet_masks = []
-        tmasks = []
- 
-        for i in range(0, args.batch_size):
-          # collect all objects for one image
-          # iterate over all masks, resize, set pixel value (obj #) and create mask volume for each image.
-          # process objects and get embeddings, per image 
-          objs_index = np.where(obj_to_img.cpu() == i)[0] # objects indices for image in batch 
-          objs_img = objs[objs_index] # object class id labels for image
-          obj_names = np.array(model.vocab['object_idx_to_name'])[objs_img.cpu().numpy()] # index with object class index
-          objs_boxes = tboxes[objs_index]
-          objs_masks = masks_pred[objs_index]
-          num_objs = len(objs_index)
-          # triplets for image
-          tr_img = np.where(triple_to_img.cpu() == i)[0]
-
-          # create masks for image objects
-          for o in range(0,num_objs):
-            # use ground truth boxes (for now) to resize masks
-            w_cols = torch.floor(objs_boxes[o][2] - objs_boxes[o][0])
-            h_rows = torch.floor(objs_boxes[o][3] - objs_boxes[o][1])
-            #print(h_rows, w_cols)
-            mask_int = (255.0 * objs_masks[o].cpu()).numpy().astype(int)
-            mask = cv2.resize(mask_int, None, None, fx=w_cols/16, fy=h_rows/16, interpolation=cv2.INTER_NEAREST)
-            #mask = imresize(mask_int, (h_rows, w_cols), mode='constant', anti_aliasing=True)
-            mask = torch.from_numpy((mask > 128).astype(np.int64)) * objs_img[o] # object id
-            #print('------', obj_names[o])
-            #print(mask_int)
-            #import matplotlib.pyplot as plt
-            #fig = plt.figure()
-            #plt.imshow(mask)
-            #plt.show()
-            tmasks.append(mask)
-            mask = []
-    
-          # create triplet masks for image
-          # process all triples for in image
-          tr_index = np.where(triple_to_img.cpu().numpy() == i)
-          tr_img = triples[tr_index] # s/p/o
-          num_triples = tr_img.size(0)
-          s, p, o = tr_img.chunk(3, dim=1)
-          s_boxes, o_boxes = tboxes[s], tboxes[o]
-          triplet_boxes = torch.cat([torch.squeeze(s_boxes), torch.squeeze(o_boxes)], dim=1)
-
-          # iterate over eact triplet to create triplet mask 
-          for n in range(0, num_triples):
-            s_idx, o_idx = s[n], o[n] # index into object-related arrays
-            s_mask = tmasks[s_idx] # subject mask 
-            o_mask = tmasks[o_idx] # object mask 
-            # find dimensions of encapsulating triplet superbox 
-            min_x = np.min([triplet_boxes[n][0], triplet_boxes[n][4]])
-            min_y = np.min([triplet_boxes[n][1], triplet_boxes[n][5]])
-            max_x = np.max([triplet_boxes[n][2], triplet_boxes[n][6]])
-            max_y = np.max([triplet_boxes[n][3], triplet_boxes[n][7]])
-            min_x, min_y = int(np.round(min_x.cpu())), int(np.round(min_y.cpu()))
-            max_x, max_y = int(np.round(max_x.cpu())), int(np.round(max_y.cpu()))
-            h = max_y - min_y + 1
-            w = max_x - min_x + 1
-
-            # create empty mask size of superbox
-            triplet_mask_size = 32
-            triplet_mask = np.zeros((h, w))
-            # superbox shift offset
-            dx, dy = min_x, min_y
-            bbs = np.array(np.round(triplet_boxes[n].cpu())).astype(int)
-            # subject masks
-            mask_h, mask_w  = s_mask.shape[0], s_mask.shape[1]
-            x0, y0 = bbs[0] - dx, bbs[1] - dy
-            x0, y0 = max(x0, 0), max(y0, 0)
-            x1, y1 = x0 + mask_w, y0 + mask_h # this should be ok: w = 5, [0:5]
-            x1, y1 = min(x1, w), min(y1, h)
-            assert triplet_mask[y0:y1, x0:x1].shape == s_mask[0:y1 - y0, 0:x1 - x0].shape, print('s_mask mismatch shape: ', 
-                               triplet_mask[y0:y1, x0:x1].shape, s_mask[0:y1 - y0, 0:x1 - x0].shape)
-            triplet_mask[y0:y1, x0:x1] = s_mask[0:y1 - y0, 0:x1 - x0]
-            # resize and label subject points as value 1
-            triplet_mask = imresize(255.0 * triplet_mask, (triplet_mask_size, triplet_mask_size),
-                           mode='constant', anti_aliasing=True)
-            triplet_mask = (triplet_mask > 128).astype(np.int64)
-
-            # object mask 
-            if(model.vocab['object_idx_to_name'][objs[o[n]]] != '__image__'):
-              mask_h, mask_w  = o_mask.shape[0], o_mask.shape[1]
-              x0, y0 = bbs[4] - dx, bbs[5] - dy
-              x0, y0 = max(x0, 0), max(y0, 0)
-              x1, y1 = x0 + mask_w, y0 + mask_h # this should be ok: w = 5, [0:5]
-              x1, y1 = min(x1, w), min(y1, h)
-              o_triplet_mask = np.zeros((h, w))
-              o_triplet_mask[y0:y1, x0:x1] = o_mask[0:y1 - y0, 0:x1 - x0]
-              o_triplet_mask = imresize(255.0 * o_triplet_mask, (triplet_mask_size, triplet_mask_size),
-                               mode='constant', anti_aliasing=True)
-              o_triplet_mask = (o_triplet_mask > 128).astype(np.int64)
-              # OR triplet masks to deal with areas of overlap
-              triplet_mask = np.logical_or(triplet_mask, o_triplet_mask).astype(int)
-              and_mask = np.logical_and(triplet_mask, o_triplet_mask).astype(int)
-              # label object pixel value 2
-              triplet_mask += o_triplet_mask
-              # randomly switch overlap
-              #if random.random() > 0.5:
-              #  triplet_mask -= and_mask
- 
-            #import matplotlib.pyplot as plt
-            #fig = plt.figure()
-            #plt.imshow(triplet_mask)
-            #plt.show()
-            triplet_mask = torch.from_numpy(triplet_mask)
-            triplet_masks.append(triplet_mask)
-
-        triplet_masks = torch.stack(triplet_masks)
-        return triplet_masks
-
-      triplet_masks = draw_triplet_masks(num_vocab_objs, objs, obj_to_img, triple_to_img, boxes, masks_pred)
+      # draw triplet masks using predicted object masks
+      triplet_masks = draw_triplet_masks(args, model, num_vocab_objs, objs, obj_to_img, triples, triple_to_img, boxes, masks_pred)
  
       # add additional information for GT boxes (hack to not change coco.py)
       boxes_info = None
