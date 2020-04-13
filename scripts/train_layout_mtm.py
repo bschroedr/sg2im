@@ -29,6 +29,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import torchvision.models as models
+from skimage.transform import resize as imresize
+import cv2
 
 # symmetric/heuristic data augmentation
 from sg2im.data.coco_aug import CocoSceneGraphDataset, coco_collate_fn
@@ -47,6 +49,7 @@ from sg2im.perceptual_loss import FeatureExtractor
 from sg2im.data.utils import imagenet_deprocess_batch
 from sg2im.data.utils import perc_process_batch
 from sg2im.logger import Logger
+import sg2im.vis as vis
 
 
 ERASE_LINE_STD = '\x1b[2K'
@@ -237,6 +240,7 @@ def check_args(args):
 
 
 def build_model(args, vocab):
+  num_vocab_objs = len(vocab['object_idx_to_name'])
   if args.checkpoint_start_from is not None:
     checkpoint = torch.load(args.checkpoint_start_from)
     kwargs = checkpoint['model_kwargs']
@@ -251,7 +255,6 @@ def build_model(args, vocab):
     for k, v in pretrained_dict.items():
       if k.startswith('mask_net.'):
         filtered_dict[k] = v
-    #pdb.set_trace()
     #filtered_dict = dict(filter(lambda item: 'mask_net' in item[0], model_dict.items()))
     # filter unnecessary keyes (only keep those in subnet) 
     pretrained_dict = {k: v for k, v in filtered_dict.items() if k in pretrained_dict}
@@ -259,7 +262,6 @@ def build_model(args, vocab):
     model_dict.update(pretrained_dict)
     # 3. load the new state dict
     model.load_state_dict(model_dict)
-    #pdb.set_trace()
     #########
     #raw_state_dict = checkpoint['model_state']
     #state_dict = {}
@@ -292,7 +294,7 @@ def build_model(args, vocab):
       'triplet_superbox_net': args.triplet_superbox_net
     }
     model = Sg2ImModel(**kwargs)
-  return model, kwargs
+  return model, kwargs, num_vocab_objs
 
 
 def build_obj_discriminator(args, vocab):
@@ -469,6 +471,16 @@ def get_rel_score(args, t, loader, model):
       if num_samples >= args.num_val_samples:
         break
 
+      # this will
+      #vis.draw_layout(model.vocab, objs, boxes, masks=layout_masks, size=256, show_boxes=False, bgcolor=(0, 0, 0))
+
+      #layouts = vis.debug_layout_mask(model.vocab, objs, layout_boxes.cpu(), layout_masks.cpu(), obj_to_img.cpu(), W=256, H=256) 
+      #import matplotlib.pyplot as plt
+      #fig = plt.figure()
+      #plt.imshow(layouts[0])
+      #plt.show()
+      #pdb.set_trace()
+
       # no relation score for VG because we do not have geometric relationships!
       # rel_score += relation_score(boxes_pred, boxes, masks_pred, masks, model.vocab)
       b += 1
@@ -486,6 +498,7 @@ def add_bbox_info(bboxes):
   log_hw = torch.log1p(h/w) #  log1p is better for small number
   bboxes_info = torch.cat([bboxes, log_hw[:,None]], dim=1)
   return bboxes_info
+
 
 def check_model(args, t, loader, model, logger=None, log_tag='', write_images=False):
   float_dtype = torch.cuda.FloatTensor
@@ -528,6 +541,8 @@ def check_model(args, t, loader, model, logger=None, log_tag='', write_images=Fa
         max_x = np.max([tb[:,2].cpu().numpy(), tb[:,6].cpu().numpy()], axis=0)
         max_y = np.max([tb[:,3].cpu().numpy(), tb[:,7].cpu().numpy()], axis=0)
         triplet_superboxes = torch.stack([torch.from_numpy(min_x), torch.from_numpy(min_y), torch.from_numpy(max_x), torch.from_numpy(max_y)]).permute(1,0).cuda()
+
+      triplet_masks = draw_triplet_masks(num_vocab_objs, objs, obj_to_img, triple_to_img, boxes, masks_pred)
 
       # for layout model, we don't care about these
       #skip_pixel_loss = False
@@ -666,7 +681,8 @@ def calculate_model_losses(args, skip_pixel_loss, model, img, img_pred,
 
   if args.triplet_mask_loss_weight > 0 and triplet_masks is not None and triplet_masks_pred is not None:
     # for multiclass (subj/obj/background) labels
-    triplet_mask_loss = F.cross_entropy(triplet_masks_pred, triplet_masks.long())
+    triplet_mask_loss = F.cross_entropy(triplet_masks_pred, triplet_masks.cuda().long())
+    #triplet_mask_loss = F.cross_entropy(triplet_masks_pred, triplet_masks.float())
     #triplet_mask_loss = F.binary_cross_entropy(triplet_masks_pred, triplet_masks.float())
     total_loss = add_loss(total_loss, triplet_mask_loss, losses, 'triplet_mask_loss',
                           args.triplet_mask_loss_weight)
@@ -718,8 +734,7 @@ def main(args):
   long_dtype = torch.cuda.LongTensor
 
   vocab, train_loader, val_loader = build_loaders(args)
-  model, model_kwargs = build_model(args, vocab)
-  model_from_checkpoint = model
+  model, model_kwargs, num_vocab_objs  = build_model(args, vocab)
   model.type(float_dtype)
   print(model)
 
@@ -760,14 +775,14 @@ def main(args):
                                        lr=args.learning_rate)
 
   restore_path = None
-  if args.checkpoint_start_from is not None:
-    restore_path = args.checkpoint_start_from
-  elif args.restore_from_checkpoint:
-    restore_path = '%s_with_model.pt' % args.checkpoint_name
-    restore_path = os.path.join(args.output_dir, restore_path)
+  #if args.checkpoint_start_from is not None:
+  #  restore_path = args.checkpoint_start_from
+  #elif args.restore_from_checkpoint:
+  #  restore_path = '%s_with_model.pt' % args.checkpoint_name
+  #  restore_path = os.path.join(args.output_dir, restore_path)
   if restore_path is not None and os.path.isfile(restore_path):
     print('Restoration from checkpoint disable for optimizer.')
-    t, epoch = 0, 0
+    #t, epoch = 0, 0
     #print('Restoring from checkpoint:')
     #print(restore_path)
     #checkpoint = torch.load(restore_path)
@@ -851,7 +866,6 @@ def main(args):
       with timeit('forward', args.timing):
         model_boxes = boxes
         model_masks = masks
-        #pdb.set_trace()
         model_out = model(objs, triples, obj_to_img,
                           boxes_gt=model_boxes
                           )
@@ -861,9 +875,127 @@ def main(args):
         # imgs_pred, boxes_pred, masks_pred, predicate_scores = model_out
         imgs_pred, boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores, obj_embeddings, pred_embeddings, triplet_boxes_pred, triplet_boxes, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred = model_out
         # boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores = model_out
-   
-      print('superboxes') 
-      #pdb.set_trace() 
+  
+      masks_pred = masks_pred.detach()
+
+      def draw_triplet_masks(num_vocab_objs, objs, obj_to_img, triple_to_img, the_boxes, masks_pred):
+        img_size = imgs[0].size(1)
+        #masks = torch.zeros([num_vocab_objs, img_size, img_size], dtype=torch.float32)	
+        # rescale boxes to image dimensions
+        tboxes = the_boxes * img_size
+        # all triplet masks per batch
+        triplet_masks = []
+        tmasks = []
+ 
+        for i in range(0, args.batch_size):
+          # collect all objects for one image
+          # iterate over all masks, resize, set pixel value (obj #) and create mask volume for each image.
+          # process objects and get embeddings, per image 
+          objs_index = np.where(obj_to_img.cpu() == i)[0] # objects indices for image in batch 
+          objs_img = objs[objs_index] # object class id labels for image
+          obj_names = np.array(model.vocab['object_idx_to_name'])[objs_img.cpu().numpy()] # index with object class index
+          objs_boxes = tboxes[objs_index]
+          objs_masks = masks_pred[objs_index]
+          num_objs = len(objs_index)
+          # triplets for image
+          tr_img = np.where(triple_to_img.cpu() == i)[0]
+
+          # create masks for image objects
+          for o in range(0,num_objs):
+            # use ground truth boxes (for now) to resize masks
+            w_cols = torch.floor(objs_boxes[o][2] - objs_boxes[o][0])
+            h_rows = torch.floor(objs_boxes[o][3] - objs_boxes[o][1])
+            #print(h_rows, w_cols)
+            mask_int = (255.0 * objs_masks[o].cpu()).numpy().astype(int)
+            mask = cv2.resize(mask_int, None, None, fx=w_cols/16, fy=h_rows/16, interpolation=cv2.INTER_NEAREST)
+            #mask = imresize(mask_int, (h_rows, w_cols), mode='constant', anti_aliasing=True)
+            mask = torch.from_numpy((mask > 128).astype(np.int64)) * objs_img[o] # object id
+            #print('------', obj_names[o])
+            #print(mask_int)
+            #import matplotlib.pyplot as plt
+            #fig = plt.figure()
+            #plt.imshow(mask)
+            #plt.show()
+            tmasks.append(mask)
+            mask = []
+    
+          # create triplet masks for image
+          # process all triples for in image
+          tr_index = np.where(triple_to_img.cpu().numpy() == i)
+          tr_img = triples[tr_index] # s/p/o
+          num_triples = tr_img.size(0)
+          s, p, o = tr_img.chunk(3, dim=1)
+          s_boxes, o_boxes = tboxes[s], tboxes[o]
+          triplet_boxes = torch.cat([torch.squeeze(s_boxes), torch.squeeze(o_boxes)], dim=1)
+
+          # iterate over eact triplet to create triplet mask 
+          for n in range(0, num_triples):
+            s_idx, o_idx = s[n], o[n] # index into object-related arrays
+            s_mask = tmasks[s_idx] # subject mask 
+            o_mask = tmasks[o_idx] # object mask 
+            # find dimensions of encapsulating triplet superbox 
+            min_x = np.min([triplet_boxes[n][0], triplet_boxes[n][4]])
+            min_y = np.min([triplet_boxes[n][1], triplet_boxes[n][5]])
+            max_x = np.max([triplet_boxes[n][2], triplet_boxes[n][6]])
+            max_y = np.max([triplet_boxes[n][3], triplet_boxes[n][7]])
+            min_x, min_y = int(np.round(min_x.cpu())), int(np.round(min_y.cpu()))
+            max_x, max_y = int(np.round(max_x.cpu())), int(np.round(max_y.cpu()))
+            h = max_y - min_y + 1
+            w = max_x - min_x + 1
+
+            # create empty mask size of superbox
+            triplet_mask_size = 32
+            triplet_mask = np.zeros((h, w))
+            # superbox shift offset
+            dx, dy = min_x, min_y
+            bbs = np.array(np.round(triplet_boxes[n].cpu())).astype(int)
+            # subject masks
+            mask_h, mask_w  = s_mask.shape[0], s_mask.shape[1]
+            x0, y0 = bbs[0] - dx, bbs[1] - dy
+            x0, y0 = max(x0, 0), max(y0, 0)
+            x1, y1 = x0 + mask_w, y0 + mask_h # this should be ok: w = 5, [0:5]
+            x1, y1 = min(x1, w), min(y1, h)
+            assert triplet_mask[y0:y1, x0:x1].shape == s_mask[0:y1 - y0, 0:x1 - x0].shape, print('s_mask mismatch shape: ', 
+                               triplet_mask[y0:y1, x0:x1].shape, s_mask[0:y1 - y0, 0:x1 - x0].shape)
+            triplet_mask[y0:y1, x0:x1] = s_mask[0:y1 - y0, 0:x1 - x0]
+            # resize and label subject points as value 1
+            triplet_mask = imresize(255.0 * triplet_mask, (triplet_mask_size, triplet_mask_size),
+                           mode='constant', anti_aliasing=True)
+            triplet_mask = (triplet_mask > 128).astype(np.int64)
+
+            # object mask 
+            if(model.vocab['object_idx_to_name'][objs[o[n]]] != '__image__'):
+              mask_h, mask_w  = o_mask.shape[0], o_mask.shape[1]
+              x0, y0 = bbs[4] - dx, bbs[5] - dy
+              x0, y0 = max(x0, 0), max(y0, 0)
+              x1, y1 = x0 + mask_w, y0 + mask_h # this should be ok: w = 5, [0:5]
+              x1, y1 = min(x1, w), min(y1, h)
+              o_triplet_mask = np.zeros((h, w))
+              o_triplet_mask[y0:y1, x0:x1] = o_mask[0:y1 - y0, 0:x1 - x0]
+              o_triplet_mask = imresize(255.0 * o_triplet_mask, (triplet_mask_size, triplet_mask_size),
+                               mode='constant', anti_aliasing=True)
+              o_triplet_mask = (o_triplet_mask > 128).astype(np.int64)
+              # OR triplet masks to deal with areas of overlap
+              triplet_mask = np.logical_or(triplet_mask, o_triplet_mask).astype(int)
+              and_mask = np.logical_and(triplet_mask, o_triplet_mask).astype(int)
+              # label object pixel value 2
+              triplet_mask += o_triplet_mask
+              # randomly switch overlap
+              #if random.random() > 0.5:
+              #  triplet_mask -= and_mask
+ 
+            #import matplotlib.pyplot as plt
+            #fig = plt.figure()
+            #plt.imshow(triplet_mask)
+            #plt.show()
+            triplet_mask = torch.from_numpy(triplet_mask)
+            triplet_masks.append(triplet_mask)
+
+        triplet_masks = torch.stack(triplet_masks)
+        return triplet_masks
+
+      triplet_masks = draw_triplet_masks(num_vocab_objs, objs, obj_to_img, triple_to_img, boxes, masks_pred)
+ 
       # add additional information for GT boxes (hack to not change coco.py)
       boxes_info = None
       if args.use_bbox_info and boxes_pred_info is not None:
