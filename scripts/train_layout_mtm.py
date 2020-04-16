@@ -599,7 +599,13 @@ def draw_triplet_masks(args, model, num_vocab_objs, objs, obj_to_img, triples, t
         o_triplet_mask = (o_triplet_mask > 128).astype(np.int64)
         # OR triplet masks to deal with areas of overlap
         triplet_mask = np.logical_or(triplet_mask, o_triplet_mask).astype(int)
-        and_mask = np.logical_and(triplet_mask, o_triplet_mask).astype(int)
+        #and_mask = np.logical_and(triplet_mask, o_triplet_mask).astype(int)
+        #pdb.set_trace()
+        #import matplotlib.pyplot as plt
+        #plt.imshow(triplet_mask)
+        #plt.show()
+        #plt.imshow(and_mask)
+        #plt.show()
         # label object pixel value 2
         triplet_mask += o_triplet_mask
         # randomly switch overlap
@@ -610,6 +616,7 @@ def draw_triplet_masks(args, model, num_vocab_objs, objs, obj_to_img, triples, t
       #fig = plt.figure()
       #plt.imshow(triplet_mask)
       #plt.show()
+
       triplet_mask = torch.from_numpy(triplet_mask)
       triplet_masks.append(triplet_mask)
 
