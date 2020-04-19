@@ -332,8 +332,16 @@ class CocoSceneGraphDataset(Dataset):
     objs_ordered_indx = []
     obj_cat_ids = []
     extreme_points = []
+    one_hots = []
+    num_cats = len(self.vocab['object_idx_to_name'])
 
     for object_data in self.image_id_to_objects[image_id]:
+
+      # one-hot vector for category id (obj idx)
+      vec = torch.zeros(num_cats) 
+      vec[object_data['category_id']] = 1
+      one_hots.append(vec)
+      
       objs.append(object_data['category_id'])
       x, y, w, h = object_data['bbox']
       # Normalized coordinates, preserves aspect ratio
@@ -414,12 +422,17 @@ class CocoSceneGraphDataset(Dataset):
     # unscaled box/mask for singleton case: [x0, y0, x1, y1]
     abs_boxes.append(torch.FloatTensor([0, 0, WW, HH]))
     abs_masks.append(torch.ones(HH, WW).long())
+    # one-hot vector
+    vec = torch.zeros(num_cats)
+    vec[0] = 1
+    one_hots.append(vec)
 
     objs = torch.LongTensor(objs)
     # merge a list of Tensors into one Tensor
     boxes = torch.stack(boxes, dim=0)
     masks = torch.stack(masks, dim=0)
     abs_boxes = torch.stack(abs_boxes, dim=0)
+    one_hots = torch.stack(one_hots, dim=0)
 
     box_areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
 
@@ -678,7 +691,7 @@ class CocoSceneGraphDataset(Dataset):
     triplet_masks = torch.stack(triplet_masks, dim=0)
     #print('----- end processing of image --------') 
     # this gets passed to coco_collate
-    return image, objs, boxes, masks, triples, triplet_masks
+    return image, objs, boxes, masks, triples, triplet_masks, one_hots
 
 
 def seg_to_mask(seg, width=1.0, height=1.0):
@@ -708,12 +721,12 @@ def coco_collate_fn(batch):
   - obj_to_img: LongTensor of shape (O,) mapping objects to images
   - triple_to_img: LongTensor of shape (T,) mapping triples to images
   """
-  all_imgs, all_objs, all_boxes, all_masks, all_triples, all_triplet_masks = [], [], [], [], [], []
+  all_imgs, all_objs, all_boxes, all_masks, all_triples, all_triplet_masks, all_one_hots = [], [], [], [], [], [], []
   #all_imgs, all_objs, all_boxes, all_masks, all_triples = [], [], [], [], []
   all_obj_to_img, all_triple_to_img = [], []
   obj_offset = 0
   # update anything returned by __get_item__ here
-  for i, (img, objs, boxes, masks, triples, triplet_masks) in enumerate(batch):
+  for i, (img, objs, boxes, masks, triples, triplet_masks, one_hots) in enumerate(batch):
   #for i, (img, objs, boxes, masks, triples) in enumerate(batch):
     all_imgs.append(img[None])
     if objs.dim() == 0 or triples.dim() == 0:
@@ -728,6 +741,7 @@ def coco_collate_fn(batch):
     all_triples.append(triples)
     # triplet masks
     all_triplet_masks.append(triplet_masks)
+    all_one_hots.append(one_hots)
 
     all_obj_to_img.append(torch.LongTensor(O).fill_(i))
     all_triple_to_img.append(torch.LongTensor(T).fill_(i))
@@ -741,9 +755,10 @@ def coco_collate_fn(batch):
   all_obj_to_img = torch.cat(all_obj_to_img)
   all_triple_to_img = torch.cat(all_triple_to_img)
   all_triplet_masks = torch.cat(all_triplet_masks)
+  all_one_hots = torch.cat(all_one_hots)
 
   out = (all_imgs, all_objs, all_boxes, all_masks, all_triples,
-         all_obj_to_img, all_triple_to_img, all_triplet_masks)
+         all_obj_to_img, all_triple_to_img, all_triplet_masks, all_one_hots)
   #out = (all_imgs, all_objs, all_boxes, all_masks, all_triples,
   #       all_obj_to_img, all_triple_to_img)
   return out
