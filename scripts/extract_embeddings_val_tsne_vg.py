@@ -32,7 +32,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import torchvision.models as models
-###from tsne import bh_sne # did not work with new installation
+#from tsne import bh_sne
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -423,7 +423,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
         # Run model without GT boxes to get predicted layout masks
         #model_out = model(objs, triples, obj_to_img)
         #layout_boxes, layout_masks = model_out[5], model_out[6]
-     
+      
         num_batch_samples = imgs.size(0)
         num_samples += num_batch_samples
         if num_samples >= args.num_val_samples:
@@ -549,15 +549,8 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             print(tuple([subj, pred, obj]))
             print(tr_img[n])
             #print('--------------------')
-            #f.write('(' + db_utils.tuple_to_string(tuple([subj, pred, obj])) + ')\n')$a
-          
-            #if n == 0: 
-              # visualize triplet mask            
-            #  plt.imshow(np.argmax(triplet_masks_pred[0].cpu().numpy(), axis=0))
-            #  plt.show()
-            
-            triplet = tuple([subj, pred, obj]) 
-
+            #f.write('(' + db_utils.tuple_to_string(tuple([subj, pred, obj])) + ')\n')
+           
             # discard singletons 
             if pred == '__in_image__':
               continue
@@ -612,10 +605,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             # to recover np array: patch = np.array(relationship['image'])
             #relationship['image'] = [patch.tolist()] 
             #relationship['image'] = patch 
-            
-            ####relationship['full_image'] = [np_imgs[batch_index].tolist()] 
-            patch = np_imgs[batch_index][y0:y1 + 1, x0:x1+1]
-            relationship['full_image'] = [patch.tolist()] 
+            relationship['full_image'] = [np_imgs[batch_index].tolist()] 
 
             triplet_str = db_utils.tuple_to_string(triplet)
             if triplet_str not in triplet_db:
@@ -746,7 +736,7 @@ def analyze_embedding_retrieval(db):
   imgs = []
   np_imgs = []
   labels = []
-  labels_as_keys = []
+  labels_to_keys = []
   subjects = []
   objects = []
 
@@ -794,7 +784,7 @@ def analyze_embedding_retrieval(db):
 
       labels += [k]
       ##labels += [ k + '\n[' + db[k][t]['subject_supercat'] + '||' + db[k][t]['object_supercat'] + ']' ]
-      labels_as_keys += [k]
+      labels_to_keys += [k]
       subjects += [subj]
       objects += [obj]
 
@@ -896,19 +886,9 @@ def analyze_embedding_retrieval(db):
       query_img = imgs[i]
       query_orig_idx = i
       k[i] = '[query triplet]\n' + k[i]
-      # get sorted L2 distance
       dist = euclid_dist(np.asarray(query), np.asarray(tmp_embeds))
       index = dist.argsort(axis=0) # indices of sorted list
       #print(dist[index[0:topK]]) # distance of the top10 sorted queries
-
-      # exclude zero-distance triplets
-      z = (dist == 0).astype(int)
-      zero_count = np.sum(z)
-      #  set dist == 0 to inf
-      z_idx = np.where(dist == 0)
-      dist[z_idx] = 999
-      # re-sort after resetting distances 
-      index = dist.argsort(axis=0) # indices of sorted list
     
       # calculate recall
       find_recall = True 
@@ -918,10 +898,11 @@ def analyze_embedding_retrieval(db):
         results = k[index[0:topK_recall]]
         qq = np.matlib.repmat(query_str,topK_recall,1).squeeze()
         rr = (results == qq).astype(int)
-        triplet_count = hist[labels_as_keys[i]]['count']-zero_count-1 # -1 because we  don't count query  triplet
-        # calculate topK_recalls for 1 query result
-        if(triplet_count > 1):
-          recall = calculate_recall(rr, triplet_count)
+        triplet_count = hist[labels_to_keys[i]]['count']
+        min_triplet_count = 5
+        # calculate topK_recalls for 1 query 
+        if(triplet_count-1) < min_triplet_count:
+          recall = calculate_recall(rr, triplet_count-1)
           total_recall.append(recall)
         print(query_str)
         print('query idx = ', i)
@@ -929,13 +910,6 @@ def analyze_embedding_retrieval(db):
         continue
 
       # visualize query and topK images
-
-      # skip visualization if triplet_count is too low
-      if(triplet_count <= 1):
-        print('skipping ', query_str)
-        t += 1
-        continue
-
       count = 1
       fig = plt.figure(figsize=(12,5))
       #plt.axis('off')
@@ -945,6 +919,7 @@ def analyze_embedding_retrieval(db):
       # different triplets showing up from the same image shows that context matters; (triplets don't work in isolation s.t.s.)
       # things that are identical in context are close in embedding space!!!! 
       # overall query (eg. pooling of predicate embeddings for 1 image)  to do image search?
+      #pdb.set_trace() 
       for n in idx:
         ax = fig.add_subplot(1,len(idx), count)
         sm_img = np.array(imgs[n]).squeeze()
@@ -959,6 +934,7 @@ def analyze_embedding_retrieval(db):
         print('RESULT:' + k[n])
         if query_str == k[n]:
           print('=====MATCH=====')
+
         count += 1
  
       print('-------------------------')
@@ -990,7 +966,7 @@ def analyze_embedding_retrieval(db):
       x = np.arange(1,topK_recall+1)
       plt.plot(x, mean_recall)
       plt.show()
-      print('RECALL: r@1 =', mean_recall[0], 'r@5 = ', mean_recall[4], 'r@10 = ', mean_recall[9], 'r@100 = ', mean_recall[99])
+      print('RECALL: r@1 =', mean_recall[0], 'r@25 = ', mean_recall[19], 'r@50 = ', mean_recall[49])
     pdb.set_trace()
     
   #f.close()
