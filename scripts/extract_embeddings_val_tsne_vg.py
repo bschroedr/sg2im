@@ -397,6 +397,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
     # relationship (triplet) database
     triplet_db = dict()
     object_db = dict()
+    img_id = 0
 
     # iterate over all batches of images
     with torch.no_grad():
@@ -591,6 +592,8 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             relationship['predicate_embed'] = pred_embed
             relationship['object_embed'] = obj_embed
             relationship['embed'] = pooled_embed
+            # assign triplet an image id
+            relationship['img_id'] = img_id
 
             # image patch
             H, W = args.image_size
@@ -612,6 +615,9 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
               triplet_db[triplet_str] = [relationship]
             elif triplet_str in triplet_db:
               triplet_db[triplet_str] += [relationship]
+          
+          # increment image id
+          img_id += 1
 
           #print('------- end of processing for image --------------------------')
 
@@ -739,6 +745,7 @@ def analyze_embedding_retrieval(db):
   labels_to_keys = []
   subjects = []
   objects = []
+  img_ids = []
 
   # randomize triplet index
   su = []
@@ -787,6 +794,7 @@ def analyze_embedding_retrieval(db):
       labels_to_keys += [k]
       subjects += [subj]
       objects += [obj]
+      img_ids += [db[k][t]['img_id']]
 
   # randomize predicate
   #triplet_idx = np.random.permutation(len(pr))
@@ -886,10 +894,19 @@ def analyze_embedding_retrieval(db):
       query_img = imgs[i]
       query_orig_idx = i
       k[i] = '[query triplet]\n' + k[i]
+      # query image id
+      query_img_id = img_ids[i]
       dist = euclid_dist(np.asarray(query), np.asarray(tmp_embeds))
-      index = dist.argsort(axis=0) # indices of sorted list
+      ##index = dist.argsort(axis=0) # indices of sorted list
       #print(dist[index[0:topK]]) # distance of the top10 sorted queries
-    
+  
+      # find matching img ids to remove query img from ranked results
+      id_idx = np.where(np.array(img_ids) == query_img_id)
+      id_count = len(id_idx) # includes query triplet
+      dist[id_idx] = 999
+      # sort retrieved distances with those of query type "omitted"
+      index = dist.argsort(axis=0)
+      
       # calculate recall
       find_recall = True 
       if(find_recall):
@@ -898,11 +915,14 @@ def analyze_embedding_retrieval(db):
         results = k[index[0:topK_recall]]
         qq = np.matlib.repmat(query_str,topK_recall,1).squeeze()
         rr = (results == qq).astype(int)
-        triplet_count = hist[labels_to_keys[i]]['count']
+        triplet_count = hist[labels_to_keys[i]]['count'] - id_count # remove triplets that are from same image (as query)
+        ##triplet_count = hist[labels_to_keys[i]]['count']
         min_triplet_count = 5
         # calculate topK_recalls for 1 query 
-        if(triplet_count-1) < min_triplet_count:
-          recall = calculate_recall(rr, triplet_count-1)
+        if(triplet_count >= min_triplet_count):
+        ##if(triplet_count-1) > min_triplet_count:
+          recall = calculate_recall(rr, triplet_count)
+          ##recall = calculate_recall(rr, triplet_count-1)
           total_recall.append(recall)
         print(query_str)
         print('query idx = ', i)
@@ -951,7 +971,7 @@ def analyze_embedding_retrieval(db):
       #f.write('RESULTS:' + str(results) + '\n')
       pdb.set_trace()
       t += 1
-   
+  
     # calculate average recall
     if(find_recall):
       mean_recall = np.mean(total_recall, axis=0) # column-wise
@@ -966,7 +986,7 @@ def analyze_embedding_retrieval(db):
       x = np.arange(1,topK_recall+1)
       plt.plot(x, mean_recall)
       plt.show()
-      print('RECALL: r@1 =', mean_recall[0], 'r@25 = ', mean_recall[19], 'r@50 = ', mean_recall[49])
+      print('RECALL: r@1 =', mean_recall[0], 'r@5 = ', mean_recall[5], 'r@10 = ', mean_recall[9], 'r@100 = ', mean_recall[99])
     pdb.set_trace()
     
   #f.close()
