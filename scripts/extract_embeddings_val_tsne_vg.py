@@ -676,10 +676,14 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
 # calculate recall
 def calculate_recall(results, count):
   num_elem = len(results)
-  all_r =[] 
+  all_r = np.full(num_elem, 1).tolist() 
   for i in range(0,num_elem):
-    r = sum(results[:i+1])/count # this is not the most efficient way to do this!
-    all_r += [r]
+    if results[i] == 1:
+      break
+    else: 
+      all_r[i] = 0
+    #r = sum(results[:i+1])/count # this is not the most efficient way to do this!
+    #all_r += [r]
   return np.array(all_r)
 
 # calculate distances between all elements in A
@@ -862,6 +866,7 @@ def analyze_embedding_retrieval(db):
     topK = 10 
     total_recall = []
     recall = []
+    find_recall = True
 
     # THOUGHT: should we be retrieving patches from the same scene graph/image?
     # objects in this will/could share embeddings, eg. [person] right of floor, [person] under table
@@ -897,38 +902,51 @@ def analyze_embedding_retrieval(db):
       # query image id
       query_img_id = img_ids[i]
       dist = euclid_dist(np.asarray(query), np.asarray(tmp_embeds))
-      ##index = dist.argsort(axis=0) # indices of sorted list
-      #print(dist[index[0:topK]]) # distance of the top10 sorted queries
+      index = dist.argsort(axis=0) # indices of sorted list
+      print(dist[index[0:topK]]) # distance of the top10 sorted queries
   
       # find matching img ids to remove query img from ranked results
-      id_idx = np.where(np.array(img_ids) == query_img_id)
-      id_count = len(id_idx) # includes query triplet
-      dist[id_idx] = 999
+      #id_idx = np.where(np.array(img_ids) == query_img_id)
+      #id_count = len(id_idx) # includes query triplet
+      #dist[id_idx] = 999
       # sort retrieved distances with those of query type "omitted"
-      index = dist.argsort(axis=0)
+      #index = dist.argsort(axis=0)
+
+      # exclude zero-distance triplets
+      z = (dist == 0).astype(int)
+      zero_count = np.sum(z)
+      #  set dist == 0 to inf
+      z_idx = np.where(dist == 0)
+      dist[z_idx] = 999
+      # re-sort after resetting distances
+      index = dist.argsort(axis=0) # indices of sorted list
       
       # calculate recall
-      find_recall = True 
       if(find_recall):
         # Random result
         #index = np.random.permutation(index) # randomize sorted index
         results = k[index[0:topK_recall]]
         qq = np.matlib.repmat(query_str,topK_recall,1).squeeze()
         rr = (results == qq).astype(int)
-        triplet_count = hist[labels_to_keys[i]]['count'] - id_count # remove triplets that are from same image (as query)
+        triplet_count = hist[labels_to_keys[i]]['count'] - zero_count - 1 
+        #triplet_count = hist[labels_to_keys[i]]['count'] - id_count # remove triplets that are from same image (as query)
         ##triplet_count = hist[labels_to_keys[i]]['count']
-        min_triplet_count = 5
+        min_triplet_count = 1 # 3 - 95% recall
         # calculate topK_recalls for 1 query 
-        if(triplet_count >= min_triplet_count):
+        if(triplet_count >= min_triplet_count): 
         ##if(triplet_count-1) > min_triplet_count:
           recall = calculate_recall(rr, triplet_count)
           ##recall = calculate_recall(rr, triplet_count-1)
           total_recall.append(recall)
         print(query_str)
         print('query idx = ', i)
+        print(recall)
         # comment out for visualization
-        continue
+        #continue
 
+      if(triplet_count < min_triplet_count): 
+        print('skipping ', query_str)
+        continue
       # visualize query and topK images
       count = 1
       fig = plt.figure(figsize=(12,5))
@@ -974,6 +992,9 @@ def analyze_embedding_retrieval(db):
   
     # calculate average recall
     if(find_recall):
+      if total_recall == []:
+        print('no matches found for object class' , args.obj_class)
+        pdb.set_trace() 
       mean_recall = np.mean(total_recall, axis=0) # column-wise
       np.savetxt('mean_recall_topK' + str(topK_recall)+ '_' + args.model_label + '.txt', mean_recall)
       # plot recall
