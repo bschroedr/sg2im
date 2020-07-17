@@ -61,6 +61,10 @@ class Sg2ImModel(nn.Module):
     self.triplet_embedding_size = triplet_embedding_size
     self.use_bbox_info = use_bbox_info
     self.triplet_superbox_net = triplet_superbox_net
+    # hack
+    #vocab['pred_name_to_idx']['none'] = 46 
+    #vocab['pred_idx_to_name'].append("none") 
+    self.mask_pred = vocab['pred_name_to_idx']['none'] 
    
     num_objs = len(vocab['object_idx_to_name'])
     num_preds = len(vocab['pred_idx_to_name'])
@@ -113,7 +117,7 @@ class Sg2ImModel(nn.Module):
 
     # triplet embedding 
     if self.triplet_embedding_size > 0: 
-      # input dimsn is 3*128 for concatenated triplet, output dimsn is triplet_embed_dim
+      # input dimn is 3*128 for concatenated triplet, output dimsn is triplet_embed_dim
       triplet_embed_layers = [3*gconv_dim, gconv_hidden_dim, triplet_embedding_size]
       self.triplet_embed_net = build_mlp(triplet_embed_layers, batch_norm=mlp_normalization)
 
@@ -147,6 +151,14 @@ class Sg2ImModel(nn.Module):
 
     rel_aux_layers = [2 * embedding_dim + 8, gconv_hidden_dim, num_preds]
     self.rel_aux_net = build_mlp(rel_aux_layers, batch_norm=mlp_normalization)
+    
+    # object prediction network
+    obj_aux_layers = [2 * embedding_dim + 8, gconv_hidden_dim, num_objs]
+    self.obj_aux_net = build_mlp(obj_aux_layers, batch_norm=mlp_normalization)
+    
+    # predicate mask prediction network
+    pred_mask_layers = [3 * embedding_dim, gconv_hidden_dim, num_preds]
+    self.pred_mask_net = build_mlp(pred_mask_layers, batch_norm=mlp_normalization)
 
 
     if sg_context_dim > 0:
@@ -220,20 +232,10 @@ class Sg2ImModel(nn.Module):
     if obj_to_img is None:
       obj_to_img = torch.zeros(O, dtype=objs.dtype, device=objs.device)
 
-    #print('----------------') 
-    #print(objs)
-    #print(p)
-    #pdb.set_trace()
-
-    
     obj_vecs = self.obj_embeddings(objs)  # 'objs' => indices for model.vocab['object_idx_to_name'] 
     obj_vecs_orig = obj_vecs
     pred_vecs = self.pred_embeddings(p)   #  'p' => indices for model.vocab['pred_idx_to_name']
- 
-    #print('----------------') 
-    #print(obj_vecs.shape, pred_vecs.shape, edges.shape)
-    #print(obj_vecs.min(), obj_vecs.max(), pred_vecs.min(), pred_vecs.max())
-    #pdb.set_trace() 
+    pred_vecs_orig = pred_vecs
 
     if isinstance(self.gconv, nn.Linear):
       obj_vecs = self.gconv(obj_vecs)
@@ -241,6 +243,34 @@ class Sg2ImModel(nn.Module):
       obj_vecs, pred_vecs = self.gconv(obj_vecs, pred_vecs, edges)
     if self.gconv_net is not None:
       obj_vecs, pred_vecs = self.gconv_net(obj_vecs, pred_vecs, edges)
+
+    ####  mask out some predicates #####
+    perc = torch.FloatTensor([0.1]) # hyperparameter
+    num_mask_objs = torch.floor(perc*len(s)).cpu().numpy()[0].astype(int)
+    mask_idx = torch.randint(0, len(s), (num_mask_objs,))
+    # GT
+    pred_mask_gt = p[mask_idx.long()]  # return
+    # subj/obj
+    s_mask = s[mask_idx.long()]
+    o_mask = o[mask_idx.long()]
+    subj_vecs_mask = obj_vecs[o_mask]
+    obj_vecs_mask = obj_vecs[o_mask]
+    pred_vec_mask = self.pred_embeddings(torch.tensor([self.mask_pred]).cuda()) # copy embedding  
+    pred_vecs_mask = pred_vec_mask.repeat(len(mask_idx),1) 
+
+    # predict masked predicate relationship
+    pred_mask_input = torch.cat([subj_vecs_mask, pred_vecs_mask, obj_vecs_mask], dim=1)
+    pred_mask_scores = self.pred_mask_net(pred_mask_input)
+    
+    #if isinstance(self.gconv, nn.Linear):
+    #  p_obj_vecs = self.gconv(obj_vecs_orig)
+    #else:
+    #  p_obj_vecs, mask_pred_vecs = self.gconv(obj_vecs_orig, mask_pred_vecs, edges)
+    #if self.gconv_net is not None:
+    #  p_obj_vecs, mask_pred_vecs = self.gconv_net(p_obj_vecs, mask_pred_vecs, edges)
+
+    ######################
+ 
 
     # bounding box prediction
     boxes_pred_info = None
@@ -260,12 +290,17 @@ class Sg2ImModel(nn.Module):
     # this only affects training if loss is non-zero
     s_boxes, o_boxes = boxes_pred[s], boxes_pred[o]
     s_vecs_pred, o_vecs_pred = obj_vecs[s], obj_vecs[o] 
-    s_vecs, o_vecs = obj_vecs_orig[s], obj_vecs_orig[o]
+    s_vecs, o_vecs, p_vecs = obj_vecs_orig[s], obj_vecs_orig[o], pred_vecs_orig
+
     # uses predicted subject/object boxes, original subject/object embedding (input to GCNN)
-    ## use untrained embedding vectors
-    ##rel_aux_input = torch.cat([s_boxes, o_boxes, s_vecs, o_vecs], dim=1)
-    rel_aux_input = torch.cat([s_boxes, o_boxes, s_vecs_pred, o_vecs_pred], dim=1)
+    ## use original embedding vectors
+    rel_aux_input = torch.cat([s_boxes, o_boxes, s_vecs, o_vecs], dim=1)
     rel_scores = self.rel_aux_net(rel_aux_input)
+
+    # object prediction
+    obj_aux_input = torch.cat([s_boxes, o_boxes, s_vecs, p_vecs], dim=1)
+    #obj_aux_input = torch.cat([s_vecs, p_vecs, s_vecs_pred, pred_vecs], dim=1)
+    obj_scores = self.obj_aux_net(obj_aux_input)
 
     # concatenate triplet vectors
     s_vecs_pred, o_vecs_pred = obj_vecs[s], obj_vecs[o] 
@@ -294,7 +329,7 @@ class Sg2ImModel(nn.Module):
     # triplet superbox
     triplet_superboxes_pred = None
     if self.triplet_superbox_net is not None:
-      # predict 8 point bounding boxes
+      # predict 2 point superboxes
       triplet_superboxes_pred = self.triplet_superbox_net(triplet_input) # s/p/o (bboxes?) 
 
     H, W = self.image_size
@@ -307,7 +342,6 @@ class Sg2ImModel(nn.Module):
       layout_masks = masks_pred if masks_gt is None else masks_gt
       layout = masks_to_layout(obj_vecs, layout_boxes, layout_masks,
                                obj_to_img, H, W)
-
     layout_crn = layout
     sg_context_pred = None
     sg_context_pred_d = None 
@@ -345,9 +379,9 @@ class Sg2ImModel(nn.Module):
       triplet_boxes_gt = torch.cat([s_boxes_gt, o_boxes_gt], dim=1)    
     else: 
       triplet_boxes_gt = None
-
+    
     #return img, boxes_pred, masks_pred, rel_scores
-    return img, boxes_pred, masks_pred, objs, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, rel_scores, obj_vecs, pred_vecs, triplet_boxes_pred, triplet_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred
+    return img, boxes_pred, masks_pred, objs, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, rel_scores, obj_vecs, pred_vecs, triplet_boxes_pred, triplet_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores
 
 
   def encode_scene_graphs(self, scene_graphs):
