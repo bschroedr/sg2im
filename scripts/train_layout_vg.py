@@ -662,8 +662,8 @@ def calculate_model_losses(args, skip_pixel_loss, model, img, img_pred,
   if args.object_pred_loss_weight > 0:
     loss_object = F.cross_entropy(obj_scores, torch.squeeze(objects))
     #loss_object = FocalLoss(gamma=2.0, alpha=0.75)(obj_scores, objects)
-    p = (-loss_object).exp()
-    print('[obj pred probability]: ', p)
+    #p = (-loss_object).exp()
+    #print('[obj pred probability]: ', p)
     total_loss = add_loss(total_loss, loss_object, losses, 'object_pred',
                           args.object_pred_loss_weight)
  
@@ -673,12 +673,13 @@ def calculate_model_losses(args, skip_pixel_loss, model, img, img_pred,
     total_loss = add_loss(total_loss, loss_predicate, losses, 'predicate_pred',
                           args.predicate_pred_loss_weight)
 
+  # masked SG loss
   #if args.object_pred_loss_weight > 0:
-  loss_pred_mask = F.cross_entropy(pred_mask_scores, pred_mask_gt)
-  p = (-loss_pred_mask).exp()
-  print('[pred mask probability]: ', p)
-  total_loss = add_loss(total_loss, loss_pred_mask, losses, 'predicate_mask_pred',
-                        args.object_pred_loss_weight)
+  #loss_pred_mask = F.cross_entropy(pred_mask_scores, pred_mask_gt)
+  #p = (-loss_pred_mask).exp()
+  #print('[pred mask probability]: ', p)
+  #total_loss = add_loss(total_loss, loss_pred_mask, losses, 'predicate_mask_pred',
+  #                      5)
 
   if args.mask_loss_weight > 0 and masks is not None and masks_pred is not None:
     mask_loss = F.binary_cross_entropy(masks_pred, masks.float())
