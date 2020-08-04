@@ -42,6 +42,7 @@ class Sg2ImModel(nn.Module):
                triplet_embedding_size=0,
                use_bbox_info=False,
                triplet_superbox_net=False,
+               use_masked_sg=False,
                **kwargs):
     super(Sg2ImModel, self).__init__()
 
@@ -61,9 +62,7 @@ class Sg2ImModel(nn.Module):
     self.triplet_embedding_size = triplet_embedding_size
     self.use_bbox_info = use_bbox_info
     self.triplet_superbox_net = triplet_superbox_net
-    # hack
-    #vocab['pred_name_to_idx']['none'] = 46 
-    #vocab['pred_idx_to_name'].append("none") 
+    self.use_masked_sg = use_masked_sg
     self.mask_pred = vocab['pred_name_to_idx']['none'] 
    
     num_objs = len(vocab['object_idx_to_name'])
@@ -245,42 +244,57 @@ class Sg2ImModel(nn.Module):
     if self.gconv_net is not None:
       obj_vecs, pred_vecs = self.gconv_net(obj_vecs, pred_vecs, edges)
 
-    ####  mask out some predicates #####
-    #perc = torch.FloatTensor([0.50]) # hyperparameter
-    #num_mask_objs = torch.floor(perc*len(s)).cpu().numpy()[0].astype(int)
-    #if num_mask_objs < 1:
-    #  num_mask_objs = 1
-    #mask_idx = torch.randint(0, len(s)-1, (num_mask_objs,))
-    # GT
-    #pred_mask_gt = p[mask_idx.long()]  # return
-    # set mask idx to masked embedding (e.g. new SG!)
-    #pred_vecs_copy = pred_vecs_orig
-    #pred_vecs_copy[mask_idx.long()] = self.pred_embeddings(torch.tensor([self.mask_pred]).cuda())
+    #### object context vectors ###############
+    #num_imgs = obj_to_img[obj_to_img.size(0)-1] + 1
+    #context_obj_vecs = torch.zeros(num_imgs, obj_vecs.size(1), dtype=obj_vecs.dtype, device=obj_vecs.device)
+    #obj_to_img_exp = obj_to_img.view(-1, 1).expand_as(obj_vecs)
+    #context_obj_vecs = context_obj_vecs.scatter_add(0, obj_to_img_exp, obj_vecs)
    
-    # convolve new masked SG 
-    #if isinstance(self.gconv, nn.Linear):
-    #  mask_obj_vecs = self.gconv(obj_vecs_orig)
-    #else:
-    #  mask_obj_vecs, mask_pred_vecs = self.gconv(obj_vecs_orig, pred_vecs_copy, edges)
-    #if self.gconv_net is not None:
-    #  mask_obj_vecs, mask_pred_vecs = self.gconv_net(mask_obj_vecs, mask_pred_vecs, edges)
+    # get object counts
+    #obj_counts = torch.zeros(num_imgs, dtype=obj_vecs.dtype, device=obj_vecs.device)
+    #ones = torch.ones(obj_to_img.size(0), dtype=obj_vecs.dtype, device=obj_vecs.device)
+    #obj_counts = obj_counts.scatter_add(0, obj_to_img, ones)
+    #context_obj_vecs = context_obj_vecs / obj_counts.view(-1, 1) 
+    #context_obj_vecs = context_obj_vecs[obj_to_img]
+    #context_obj_vecs = context_obj_vecs[s]
+    ####################################
 
-    # subj/obj obj idx
-    #s_mask = s[mask_idx.long()]
-    #o_mask = o[mask_idx.long()]
 
-    #subj_vecs_mask = mask_obj_vecs[s_mask]
-    #obj_vecs_mask = mask_obj_vecs[o_mask]
+    ####  mask out some predicates #####
+    pred_mask_gt = None
+    pred_mask_scores = None
+    if self.use_masked_sg:
+      perc = torch.FloatTensor([0.50]) # hyperparameter
+      num_mask_objs = torch.floor(perc*len(s)).cpu().numpy()[0].astype(int)
+      if num_mask_objs < 1:
+        num_mask_objs = 1
+      mask_idx = torch.randint(0, len(s)-1, (num_mask_objs,))
+      # GT
+      pred_mask_gt = p[mask_idx.long()]  # return
+      # set mask idx to masked embedding (e.g. new SG!)
+      pred_vecs_copy = pred_vecs_orig
+      pred_vecs_copy[mask_idx.long()] = self.pred_embeddings(torch.tensor([self.mask_pred]).cuda())
+   
+			# convolve new masked SG 
+      if isinstance(self.gconv, nn.Linear):
+        mask_obj_vecs = self.gconv(obj_vecs_orig)
+      else:
+        mask_obj_vecs, mask_pred_vecs = self.gconv(obj_vecs_orig, pred_vecs_copy, edges)
+      if self.gconv_net is not None:
+        mask_obj_vecs, mask_pred_vecs = self.gconv_net(mask_obj_vecs, mask_pred_vecs, edges)
 
-    #xpred_vec_mask = self.pred_embeddings(torch.tensor([self.mask_pred]).cuda())   
-    #xpred_vecs_mask = pred_vec_mask.repeat(len(mask_idx),1) 
+			# subj/obj obj idx
+      s_mask = s[mask_idx.long()]
+      o_mask = o[mask_idx.long()]
 
-    # predict masked predicate relationship
-    #xpred_mask_input = torch.cat([subj_vecs_mask, pred_vecs_mask, obj_vecs_mask], dim=1)
-    #pred_mask_input = torch.cat([subj_vecs_mask, obj_vecs_mask], dim=1)
-    #pred_mask_scores = self.pred_mask_net(pred_mask_input)
-    
-    ######################
+      subj_vecs_mask = mask_obj_vecs[s_mask]
+      obj_vecs_mask = mask_obj_vecs[o_mask]
+
+			# predict masked predicate relationship
+      pred_mask_input = torch.cat([subj_vecs_mask, obj_vecs_mask], dim=1)
+      pred_mask_scores = self.pred_mask_net(pred_mask_input)
+			
+		#####################
  
 
     # bounding box prediction
