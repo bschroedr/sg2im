@@ -63,7 +63,9 @@ class Sg2ImModel(nn.Module):
     self.use_bbox_info = use_bbox_info
     self.triplet_superbox_net = triplet_superbox_net
     self.use_masked_sg = use_masked_sg
-    self.mask_pred = vocab['pred_name_to_idx']['none'] 
+    # hack to deal with vocabs with differing # of predicates
+    self.mask_pred = 46 # vocab['idx_to_pred_name'][46] = 'none'
+    #self.mask_pred = vocab['pred_name_to_idx']['none'] 
    
     num_objs = len(vocab['object_idx_to_name'])
     num_preds = len(vocab['pred_idx_to_name'])
