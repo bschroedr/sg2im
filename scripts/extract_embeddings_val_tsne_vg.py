@@ -420,7 +420,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
         model_masks = masks
         model_out = model(objs, triples, obj_to_img, boxes_gt=boxes, masks_gt=model_masks)
         #imgs_pred, boxes_pred, masks_pred, predicate_scores = model_out
-        imgs_pred, boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores, obj_embeddings, pred_embeddings, triple_boxes_pred, triple_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred = model_out
+        imgs_pred, boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores, obj_embeddings, pred_embeddings, triple_boxes_pred, triple_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores = model_out
         # Run model without GT boxes to get predicted layout masks
         #model_out = model(objs, triples, obj_to_img)
         #layout_boxes, layout_masks = model_out[5], model_out[6]
@@ -940,9 +940,8 @@ def analyze_embedding_retrieval(db):
           total_recall.append(recall)
         print(query_str)
         print('query idx = ', i)
-        print(recall)
         # comment out for visualization
-        #continue
+        continue
 
       if(triplet_count < min_triplet_count): 
         print('skipping ', query_str)
@@ -1273,11 +1272,7 @@ def main(args):
   model.eval()
   model.to(device)
 
-
   vocab, train_loader, val_loader = build_loaders(args)
-  #val_loader = None
-  # add supercat to model vocab 
-  #model.vocab['object_idx_to_supercat'] = vocab['object_idx_to_supercat']
   
   if not os.path.isdir(args.output_dir):
     os.mkdir(args.output_dir)
