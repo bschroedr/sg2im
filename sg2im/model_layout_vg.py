@@ -159,9 +159,12 @@ class Sg2ImModel(nn.Module):
     
     # predicate mask prediction network
     pred_mask_layers = [2 * embedding_dim, gconv_hidden_dim, num_preds]
-    #pred_mask_layers = [3 * embedding_dim, gconv_hidden_dim, num_preds]
     self.pred_mask_net = build_mlp(pred_mask_layers, batch_norm=mlp_normalization)
 
+    # input dimn is 3*128 for concatenated triplet
+    triplet_context_layers = [4*gconv_dim, gconv_hidden_dim, 3*gconv_dim]
+    self.triplet_context_net = nn.Linear(4*gconv_dim, 3*gconv_dim) 
+    #self.triplet_context_net = build_mlp(triplet_context_layers, batch_norm=mlp_normalization)
 
     if sg_context_dim > 0:
       refinement_kwargs = {
@@ -189,6 +192,7 @@ class Sg2ImModel(nn.Module):
     if cur_size != mask_size:
       raise ValueError('Mask size must be a power of 2')
     layers.append(nn.Conv2d(dim, output_dim, kernel_size=1))
+    # freeze layers trained on COCO/MTM
     m = nn.Sequential(*layers)
     for param in m.parameters():
       param.requires_grad = False 
@@ -212,7 +216,7 @@ class Sg2ImModel(nn.Module):
     return nn.Sequential(*layers)
 
   def forward(self, objs, triples, obj_to_img=None,
-              boxes_gt=None, masks_gt=None):
+              boxes_gt=None, masks_gt=None, tr_to_img=None):
     """
     Required Inputs:
     - objs: LongTensor of shape (O,) giving categories for all objects
@@ -247,20 +251,38 @@ class Sg2ImModel(nn.Module):
       obj_vecs, pred_vecs = self.gconv_net(obj_vecs, pred_vecs, edges)
 
     #### object context vectors ###############
-    #num_imgs = obj_to_img[obj_to_img.size(0)-1] + 1
-    #context_obj_vecs = torch.zeros(num_imgs, obj_vecs.size(1), dtype=obj_vecs.dtype, device=obj_vecs.device)
-    #obj_to_img_exp = obj_to_img.view(-1, 1).expand_as(obj_vecs)
-    #context_obj_vecs = context_obj_vecs.scatter_add(0, obj_to_img_exp, obj_vecs)
+    num_imgs = obj_to_img[obj_to_img.size(0)-1] + 1
+    context_obj_vecs = torch.zeros(num_imgs, obj_vecs.size(1), dtype=obj_vecs.dtype, device=obj_vecs.device)
+    obj_to_img_exp = obj_to_img.view(-1, 1).expand_as(obj_vecs)
+    context_obj_vecs = context_obj_vecs.scatter_add(0, obj_to_img_exp, obj_vecs)
    
     # get object counts
-    #obj_counts = torch.zeros(num_imgs, dtype=obj_vecs.dtype, device=obj_vecs.device)
-    #ones = torch.ones(obj_to_img.size(0), dtype=obj_vecs.dtype, device=obj_vecs.device)
-    #obj_counts = obj_counts.scatter_add(0, obj_to_img, ones)
-    #context_obj_vecs = context_obj_vecs / obj_counts.view(-1, 1) 
-    #context_obj_vecs = context_obj_vecs[obj_to_img]
-    #context_obj_vecs = context_obj_vecs[s]
+    obj_counts = torch.zeros(num_imgs, dtype=obj_vecs.dtype, device=obj_vecs.device)
+    ones = torch.ones(obj_to_img.size(0), dtype=obj_vecs.dtype, device=obj_vecs.device)
+    obj_counts = obj_counts.scatter_add(0, obj_to_img, ones)
+    context_obj_vecs = context_obj_vecs / obj_counts.view(-1, 1) 
+    context_obj_vecs = context_obj_vecs[obj_to_img]
+    context_obj_vecs = context_obj_vecs[s]
     ####################################
 
+    ####### triplet context vectors ########### 
+    #context_tr_vecs = None
+    # concatenate triplet vectors
+    #triplets = torch.cat([obj_vecs[s], pred_vecs, obj_vecs[o]], dim=1)
+    #context_tr_vecs = torch.zeros(num_imgs, triplets.size(1), dtype=obj_vecs.dtype, device=obj_vecs.device)
+    # need triplet to image
+    #tr_to_img_exp = tr_to_img.view(-1, 1).expand_as(triplets)
+    #context_tr_vecs = context_tr_vecs.scatter_add(0, tr_to_img_exp, triplets)
+    # get triplet counts
+    #tr_counts = torch.zeros(num_imgs, dtype=obj_vecs.dtype, device=obj_vecs.device)
+    #ones = torch.ones(triplets.size(0), dtype=obj_vecs.dtype, device=obj_vecs.device)
+    #tr_counts = tr_counts.scatter_add(0, tr_to_img, ones)
+    #context_tr_vecs = context_tr_vecs/tr_counts.view(-1,1)
+    # dimension is (# triplets, 3*input_dim)
+    #context_tr_vecs = context_tr_vecs[tr_to_img]
+    # get some context! 
+    #context_tr_vecs = self.triplet_context_net(context_tr_vecs)
+    ###########################################
 
     ####  mask out some predicates #####
     pred_mask_gt = None
@@ -295,8 +317,7 @@ class Sg2ImModel(nn.Module):
 			# predict masked predicate relationship
       pred_mask_input = torch.cat([subj_vecs_mask, obj_vecs_mask], dim=1)
       pred_mask_scores = self.pred_mask_net(pred_mask_input)
-			
-		#####################
+    #####################
  
 
     # bounding box prediction
@@ -359,6 +380,11 @@ class Sg2ImModel(nn.Module):
       # predict 2 point superboxes
       triplet_superboxes_pred = self.triplet_superbox_net(triplet_input) # s/p/o (bboxes?) 
 
+    # triplet context
+    triplet_context_input = torch.cat([context_obj_vecs, s_vecs_pred, pred_vecs, o_vecs_pred], dim=1)
+    # output dimension is 384
+    context_tr_vecs = self.triplet_context_net(triplet_context_input) 
+
     H, W = self.image_size
     layout_boxes = boxes_pred if boxes_gt is None else boxes_gt
 
@@ -408,7 +434,7 @@ class Sg2ImModel(nn.Module):
       triplet_boxes_gt = None
     
     #return img, boxes_pred, masks_pred, rel_scores
-    return img, boxes_pred, masks_pred, objs, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, rel_scores, obj_vecs, pred_vecs, triplet_boxes_pred, triplet_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores
+    return img, boxes_pred, masks_pred, objs, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, rel_scores, obj_vecs, pred_vecs, triplet_boxes_pred, triplet_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores, context_tr_vecs
 
 
   def encode_scene_graphs(self, scene_graphs):

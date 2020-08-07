@@ -418,9 +418,10 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
   
         # Run the model as it has been run during training
         model_masks = masks
-        model_out = model(objs, triples, obj_to_img, boxes_gt=boxes, masks_gt=model_masks)
+        model_out = model(objs, triples, obj_to_img, boxes_gt=boxes, masks_gt=model_masks, tr_to_img=triple_to_img)
+        ####model_out = model(objs, triples, obj_to_img, boxes_gt=boxes, masks_gt=model_masks,)
         #imgs_pred, boxes_pred, masks_pred, predicate_scores = model_out
-        imgs_pred, boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores, obj_embeddings, pred_embeddings, triple_boxes_pred, triple_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores = model_out
+        imgs_pred, boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores, obj_embeddings, pred_embeddings, triple_boxes_pred, triple_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores, context_tr_vecs = model_out
         # Run model without GT boxes to get predicted layout masks
         #model_out = model(objs, triples, obj_to_img)
         #layout_boxes, layout_masks = model_out[5], model_out[6]
@@ -507,6 +508,9 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
           tr_img_boxes = np_triple_boxes_gt[tr_index]
           assert len(tr_img) == len(tr_img_boxes)
 
+	  # triplet context: acts like encoded "signature" for each SG
+          tr_context = context_tr_vecs[tr_index]
+ 
 	  # vocab['object_idx_to_name'], vocab['pred_idx_to_name']
 	  # s,o: indices for "objs" array (yields 'object_idx' for 'object_idx_to_name')
 	  # p: use this value as is (yields 'pred_idx' for 'pred_idx_to_name')
@@ -571,6 +575,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             bb = pred_embeddings[n].cpu().numpy() 
             cc = obj_embeddings[obj_index].cpu().numpy().squeeze()
             pooled_embed = np.concatenate((aa, bb, cc)).tolist()
+            context_embed = tr_context[n].cpu().numpy()
 
             relationship = dict()
             relationship['subject'] = subj
@@ -592,6 +597,8 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             relationship['predicate_embed'] = pred_embed
             relationship['object_embed'] = obj_embed
             relationship['embed'] = pooled_embed
+            # contextual embedding
+            relationship['context_embed'] = context_embed
             # assign triplet an image id
             relationship['img_id'] = img_id
 
@@ -775,13 +782,14 @@ def analyze_embedding_retrieval(db):
     # iterate over list of triplets
     for t in range(0, len(db[k])):
       # report results using this 
-      #embeds += [db[k][t]['embed']] # concatenated embeddings! <s,p,o>
+      embeds += [db[k][t]['embed']] # concatenated embeddings! <s,p,o>
+      ######embeds += [db[k][t]['context_embed']] # concatenated embeddings! <s,p,o>
       #embeds += db[k][t]['subject_embed'] # good result when subject is fixed - context? interesting analysis to be done here!  
       #embeds += db[k][t]['object_embed'] 
       #embeds += [ db[k][t]['predicate_embed'] ] # too many 0s in topK distances 
       # NOTE: this is hacky programming and should be fixed!
-      # best
-      embeds += [np.concatenate((db[k][t]['subject_embed'][0], db[k][t]['object_embed'][0])).tolist()] # works  
+      # best for COCO
+      # preliminary VG results with this: embeds += [np.concatenate((db[k][t]['subject_embed'][0], db[k][t]['object_embed'][0])).tolist()] # works  
       # randomized predicate
       ###embeds += [np.concatenate((db[k][t]['subject_embed'][0], db[k][t]['object_embed'][0])).tolist()] 
       su += db[k][t]['subject_embed'] 
