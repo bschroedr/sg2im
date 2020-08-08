@@ -72,6 +72,12 @@ class Sg2ImModel(nn.Module):
     
     self.obj_embeddings = nn.Embedding(num_objs + 1, embedding_dim)
     self.pred_embeddings = nn.Embedding(num_preds, embedding_dim)
+  
+    # frozen embedding layers 
+    self.fr_obj_embeddings = nn.Embedding(num_objs + 1, embedding_dim)
+    self.fr_pred_embeddings = nn.Embedding(num_preds, embedding_dim)
+    self.fr_obj_embeddings.requires_grad = False
+    self.fr_pred_embeddings.requires_grad = False
 
     if gconv_num_layers == 0:
       self.gconv = nn.Linear(embedding_dim, gconv_dim)
@@ -335,10 +341,19 @@ class Sg2ImModel(nn.Module):
       mask_scores = self.mask_net(obj_vecs.view(O, -1, 1, 1))
       masks_pred = mask_scores.squeeze(1).sigmoid()
 
-    # this only affects training if loss is non-zero
+    # predicted bboxes and embedding vectors 
     s_boxes, o_boxes = boxes_pred[s], boxes_pred[o]
     s_vecs_pred, o_vecs_pred = obj_vecs[s], obj_vecs[o] 
     s_vecs, o_vecs, p_vecs = obj_vecs_orig[s], obj_vecs_orig[o], pred_vecs_orig
+ 
+    # VSA (with obj/pred vectors of varying kinds)
+    fr_obj_vecs = self.fr_obj_embeddings(objs) 
+    fr_pred_vecs = self.fr_pred_embeddings(p)
+    fr_s_vecs, fr_o_vecs  = fr_obj_vecs[s], fr_obj_vecs[o]
+    mapc_bind = fr_s_vecs * fr_o_vecs * fr_pred_vecs
+    # mapc_bind = s_vecs * o_vecs * p_vecs
+    #mapc_bind = s_vecs_pred * o_vecs_pred * pred_vecs
+    mapc_bind = F.normalize(mapc_bind, p=2, dim=1)
 
     # uses predicted subject/object boxes, original subject/object embedding (input to GCNN)
     ## use original embedding vectors
@@ -434,7 +449,7 @@ class Sg2ImModel(nn.Module):
       triplet_boxes_gt = None
     
     #return img, boxes_pred, masks_pred, rel_scores
-    return img, boxes_pred, masks_pred, objs, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, rel_scores, obj_vecs, pred_vecs, triplet_boxes_pred, triplet_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores, context_tr_vecs
+    return img, boxes_pred, masks_pred, objs, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, rel_scores, obj_vecs, pred_vecs, triplet_boxes_pred, triplet_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores, context_tr_vecs, mapc_bind
 
 
   def encode_scene_graphs(self, scene_graphs):
