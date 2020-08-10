@@ -146,7 +146,7 @@ parser.add_argument('--coco_object_db_json', default=None, type=str)
 # filename to save object embeddings db to
 parser.add_argument('--coco_object_db_json_write', default=None, type=str)
 # label for model for saving images
-parser.add_argument('--model_label', default=None, type=str)
+parser.add_argument('--model_label', default='test', type=str)
 # whitelist for triplet subject classes
 parser.add_argument('--triplet_obj_whitelist', default=None, type=str)
 # load triplet embeddings db from file
@@ -320,7 +320,7 @@ def build_vg_dsets(args):
     'max_objects': args.max_objects_per_image,
     'use_orphaned_objects': args.vg_use_orphaned_objects,
     'include_relationships': args.include_relationships,
-    'seed': args.random_seed 
+    'seed': args.random_seed,
   }
   #train_dset = VgSceneGraphDataset(**dset_kwargs)
   #iter_per_epoch = len(train_dset) // args.batch_size
@@ -424,7 +424,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
         model_out = model(objs, triples, obj_to_img, boxes_gt=boxes, masks_gt=model_masks, tr_to_img=triple_to_img)
         ####model_out = model(objs, triples, obj_to_img, boxes_gt=boxes, masks_gt=model_masks,)
         #imgs_pred, boxes_pred, masks_pred, predicate_scores = model_out
-        imgs_pred, boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores, obj_embeddings, pred_embeddings, triple_boxes_pred, triple_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores, context_tr_vecs = model_out # , mapc_bind = model_out
+        imgs_pred, boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores, obj_embeddings, pred_embeddings, triple_boxes_pred, triple_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores, context_tr_vecs = model_out  #mapc_bind = model_out
         # Run model without GT boxes to get predicted layout masks
         #model_out = model(objs, triples, obj_to_img)
         #layout_boxes, layout_masks = model_out[5], model_out[6]
@@ -514,6 +514,9 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
 	  # triplet context: acts like encoded "signature" for each SG
           tr_context = context_tr_vecs[tr_index]
  
+	  # MAPC binding
+          #tr_mapc = mapc_bind[tr_index]
+
 	  # vocab['object_idx_to_name'], vocab['pred_idx_to_name']
 	  # s,o: indices for "objs" array (yields 'object_idx' for 'object_idx_to_name')
 	  # p: use this value as is (yields 'pred_idx' for 'pred_idx_to_name')
@@ -578,8 +581,8 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             bb = pred_embeddings[n].cpu().numpy() 
             cc = obj_embeddings[obj_index].cpu().numpy().squeeze()
             pooled_embed = np.concatenate((aa, bb, cc)).tolist()
-            context_embed = tr_context[n].cpu().numpy()
-            #mapc_embed = mapc_bind[n].cpu().numpy()
+            context_embed = tr_context[n].cpu().numpy() 
+            #mapc_embed = tr_mapc[n].cpu().numpy()
 
             relationship = dict()
             relationship['subject'] = subj
@@ -688,14 +691,16 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
 # calculate recall
 def calculate_recall(results, count):
   num_elem = len(results)
-  all_r = np.full(num_elem, 1).tolist() 
+  all_r = [] 
+  ##all_r = np.full(num_elem, 1).tolist() 
   for i in range(0,num_elem):
-    if results[i] == 1:
-      break
-    else: 
-      all_r[i] = 0
-    #r = sum(results[:i+1])/count # this is not the most efficient way to do this!
-    #all_r += [r]
+    ## JJ
+    ##if results[i] == 1:
+    ##  break
+    ##else: 
+    ##  all_r[i] = 0
+    r = sum(results[:i+1])/count # this is not the most efficient way to do this!
+    all_r += [r]
   return np.array(all_r)
 
 # calculate distances between all elements in A
@@ -721,6 +726,9 @@ def euclid_dist(t1, t2):
   #return np.sqrt(((t1-t2)**2).sum(axis = 1))
 
 def analyze_embedding_retrieval(db):
+  # fix retrieval order
+  #random.seed(1)
+
   hist = {}
   for key in db.keys():
     l = len(db[key])
@@ -777,12 +785,6 @@ def analyze_embedding_retrieval(db):
     tr = db_utils.string_to_tuple(k)
     subj = tr[0] # subject
     obj = tr[2] # object
-    #if subj != 'table':
-    #if subj != 'person':
-    #if subj != 'horse':
-    #if subj != 'fork':
-    #if subj != 'furniture-other':
-    #  continue
 
     # iterate over list of triplets
     for t in range(0, len(db[k])):
@@ -790,7 +792,7 @@ def analyze_embedding_retrieval(db):
       #embeds += [db[k][t]['embed']] # concatenated embeddings! <s,p,o>
       embeds += [db[k][t]['context_embed']] # concatenated embeddings! <s,p,o>
       # VSA
-      #embeds += [db[k][t]['mapc_embed']] # concatenated embeddings! <s,p,o>
+      #embeds += [db[k][t]['mapc_embed']]
       #embeds += db[k][t]['subject_embed'] # good result when subject is fixed - context? interesting analysis to be done here!  
       #embeds += db[k][t]['object_embed'] 
       #embeds += [ db[k][t]['predicate_embed'] ] # too many 0s in topK distances 
@@ -887,7 +889,6 @@ def analyze_embedding_retrieval(db):
     # objects in this will/could share embeddings, eg. [person] right of floor, [person] under table
     # QUESTION: are embedding from the same SG clustered near each other???
     # scene graph centroid? capture context with this - use as another search embedding!! <s/p/o/context>
-    # this isn't conditioned on appearance, just size/location
     for i in query_idx:
       k = np.copy(np_keys)
       # make local copy of embeds, make query value very large
@@ -913,28 +914,28 @@ def analyze_embedding_retrieval(db):
       query_str = np_keys[i]
       query_img = imgs[i]
       query_orig_idx = i
-      k[i] = '[query triplet]\n' + k[i]
+      k[i] = "[query]\n" + k[i]
       # query image id
       query_img_id = img_ids[i]
       dist = euclid_dist(np.asarray(query), np.asarray(tmp_embeds))
       index = dist.argsort(axis=0) # indices of sorted list
-      print(dist[index[0:topK]]) # distance of the top10 sorted queries
-  
+      print('distance: ', dist[index[0:topK]]) # distance of the top10 sorted queries
+ 
       # find matching img ids to remove query img from ranked results
-      #id_idx = np.where(np.array(img_ids) == query_img_id)
-      #id_count = len(id_idx) # includes query triplet
-      #dist[id_idx] = 999
+      id_idx = np.where(np.array(img_ids) == query_img_id)
+      id_count = len(id_idx) # includes query triplet
+      dist[id_idx] = 999
       # sort retrieved distances with those of query type "omitted"
-      #index = dist.argsort(axis=0)
+      index = dist.argsort(axis=0)
 
       # exclude zero-distance triplets
-      z = (dist == 0).astype(int)
-      zero_count = np.sum(z)
+      ##z = (dist == 0).astype(int)
+      ##zero_count = np.sum(z)
       #  set dist == 0 to inf
-      z_idx = np.where(dist == 0)
-      dist[z_idx] = 999
+      ##z_idx = np.where(dist == 0)
+      ##dist[z_idx] = 999
       # re-sort after resetting distances
-      index = dist.argsort(axis=0) # indices of sorted list
+      ##index = dist.argsort(axis=0) # indices of sorted list
       
       # calculate recall
       if(find_recall):
@@ -943,8 +944,8 @@ def analyze_embedding_retrieval(db):
         results = k[index[0:topK_recall]]
         qq = np.matlib.repmat(query_str,topK_recall,1).squeeze()
         rr = (results == qq).astype(int)
-        triplet_count = hist[labels_to_keys[i]]['count'] - zero_count - 1 
-        #triplet_count = hist[labels_to_keys[i]]['count'] - id_count # remove triplets that are from same image (as query)
+        #triplet_count = hist[labels_to_keys[i]]['count'] - zero_count - 1 
+        triplet_count = hist[labels_to_keys[i]]['count'] - id_count # remove triplets that are from same image (as query)
         ##triplet_count = hist[labels_to_keys[i]]['count']
         min_triplet_count = 1 # 3 - 95% recall
         # calculate topK_recalls for 1 query 
@@ -956,7 +957,7 @@ def analyze_embedding_retrieval(db):
         print(query_str)
         print('query idx = ', i)
         # comment out for visualization
-        if not args.visualize_retrieval:
+        if not args.visualize_retrieval: 
           continue
 
       if(triplet_count < min_triplet_count): 
@@ -982,8 +983,6 @@ def analyze_embedding_retrieval(db):
         #plt.imshow(sm_img, dtype=np.float32)
         # modify ##plt.xlabel(np_keys[n], fontsize=6)
         plt.xlabel(k[n], fontsize=6)
-        #plt.imshow(np.array(imgs[n]))
-        # mod ###print('RESULT:' + np_keys[n])
         print('RESULT:' + k[n])
         if query_str == k[n]:
           print('=====MATCH=====')
@@ -1019,6 +1018,7 @@ def analyze_embedding_retrieval(db):
       plt.xlim(0, topK_recall)
       plt.xlabel('k')
       plt.ylabel('Recall at k')
+      plt.title(args.model_label)
       x = np.arange(1,topK_recall+1)
       plt.plot(x, mean_recall)
       plt.show()
