@@ -138,6 +138,11 @@ parser.add_argument('--triplet_embedding_size', default=0, type=int)
 # use object masks as prior for triplet
 parser.add_argument('--masks_to_triplet_mlp', default=False, type=int)
 parser.add_argument('--masks_to_triplet_pixels', default=False, type=int)
+# use masked SG loss
+parser.add_argument('--use_masked_sg', default=False, type=int)
+# triplet context (output) dimension
+parser.add_argument('--triplet_context_size', default=384, type=int)
+
 # show retrieval visualization
 parser.add_argument('--visualize_retrieval', default=False, type=int)
  
@@ -412,8 +417,8 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
           batch = [tensor for tensor in batch]
 
         masks = None
-        if len(batch) == 6: # VG
-          imgs, objs, boxes, triples, obj_to_img, triple_to_img = batch
+        if len(batch) == 8: # VG
+          imgs, objs, boxes, triples, obj_to_img, triple_to_img, num_attrs, attrs = batch
           triplet_masks = None
         elif len(batch) == 11: # COCO
           imgs, objs, boxes, masks, triples, obj_to_img, triple_to_img, triplet_masks, extreme_points, cat_words, cat_ids = batch
@@ -1283,6 +1288,7 @@ def main(args):
   checkpoint['model_kwargs']['triplet_box_net'] = args.triplet_box_net
   checkpoint['model_kwargs']['triplet_mask_size'] = args.triplet_mask_size
   checkpoint['model_kwargs']['triplet_embedding_size'] = args.triplet_embedding_size
+  checkpoint['model_kwargs']['triplet_context_size'] = args.triplet_context_size
   model = Sg2ImModel(**checkpoint['model_kwargs'])
   model.load_state_dict(checkpoint['model_state'], strict=False)
   model.eval()

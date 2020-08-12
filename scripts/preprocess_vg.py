@@ -19,7 +19,7 @@ from collections import Counter, defaultdict
 
 import numpy as np
 import h5py
-from scipy.misc import imread, imresize
+#from scipy.misc import imread, imresize
 
 
 """
@@ -30,7 +30,7 @@ fully-connected.
 """
 
 
-VG_DIR = '/dataset/vg'
+VG_DIR = 'datasets/vg'
 
 parser = argparse.ArgumentParser()
 
@@ -437,12 +437,15 @@ def encode_graphs(args, splits, objects, relationships, vocab,
 
       obj_id_to_attributes = {}
       num_attributes = []
+      # list of attributes per object in one image
+      object_attributes_image = []
       for obj_attribute in image_id_to_attributes[image_id]:
         obj_id_to_attributes[obj_attribute['object_id']] = obj_attribute.get('attributes', None)
       for object_id in image_object_ids:
         attributes = obj_id_to_attributes.get(object_id, None)
         if attributes is None:
-          object_attributes.append([-1] * args.max_attributes_per_image)
+          object_attributes_image.append([-1] * args.max_attributes_per_image)
+          #object_attributes.append([-1] * args.max_attributes_per_image)
           num_attributes.append(0)
         else:
           attribute_ids = []
@@ -454,14 +457,16 @@ def encode_graphs(args, splits, objects, relationships, vocab,
           num_attributes.append(len(attribute_ids))
           pad_len = args.max_attributes_per_image - len(attribute_ids)
           attribute_ids = attribute_ids + [-1] * pad_len
-          object_attributes.append(attribute_ids)
-
+          #object_attributes.append(attribute_ids)
+          object_attributes_image.append(attribute_ids)
+      
       # Pad object info out to max_objects_per_image
       while len(image_object_ids) < args.max_objects_per_image:
         image_object_ids.append(-1)
         image_object_names.append(-1)
         image_object_boxes.append([-1, -1, -1, -1])
         num_attributes.append(-1)
+        object_attributes_image.append([-1] * args.max_attributes_per_image)
 
       # Pad relationship info out to max_relationships_per_image
       while len(image_rel_ids) < args.max_relationships_per_image:
@@ -470,6 +475,7 @@ def encode_graphs(args, splits, objects, relationships, vocab,
         image_rel_preds.append(-1)
         image_rel_objs.append(-1)
 
+      # append arrays *per image*
       final_image_ids.append(image_id)
       object_ids.append(image_object_ids)
       object_names.append(image_object_names)
@@ -481,7 +487,8 @@ def encode_graphs(args, splits, objects, relationships, vocab,
       relationship_objects.append(image_rel_objs)
       relationships_per_image.append(num_relationships)
       attributes_per_object.append(num_attributes)
-
+      object_attributes.append(object_attributes_image)
+    
     print('Skip stats for split "%s"' % split)
     for stat, count in skip_stats.items():
       print(stat, count)
