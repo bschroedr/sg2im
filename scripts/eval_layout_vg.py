@@ -426,8 +426,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
         # Run the model as it has been run during training
         model_masks = masks
         model_out = model(objs, triples, obj_to_img, boxes_gt=boxes, masks_gt=model_masks, tr_to_img=triple_to_img)
-        ####model_out = model(objs, triples, obj_to_img, boxes_gt=boxes, masks_gt=model_masks,)
-        #imgs_pred, boxes_pred, masks_pred, predicate_scores = model_out
+        ####model_out = model(objs, triples, obj_to_img, boxes_gt=boxes, masks_gt=model_masks,) #imgs_pred, boxes_pred, masks_pred, predicate_scores = model_out
         imgs_pred, boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores, obj_embeddings, pred_embeddings, triple_boxes_pred, triple_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores, context_tr_vecs = model_out  #mapc_bind = model_out
         # Run model without GT boxes to get predicted layout masks
         #model_out = model(objs, triples, obj_to_img)
@@ -457,7 +456,11 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
           objs_img = objs[objs_index] # object class id labels for image
           #obj_names = np.array(model.vocab['object_idx_to_name'])[objs_img] # index with object class index
           obj_names = np.array(model.vocab['object_idx_to_name'])[objs_img.cpu().numpy()] 
-
+          # centroid of predicted boxes
+          obj_boxes = boxes_pred[objs_index]
+          x_c = np.mean([np.array(obj_boxes[:,0]),np.array(obj_boxes[:,2])], axis=0)
+          y_c = np.mean([np.array(obj_boxes[:,1]),np.array(obj_boxes[:,3])], axis=0)
+          obj_ctrs = np.array([x_c, y_c]).transpose()
           # scene graph embedding
           obj_embeddings_img = obj_embeddings[objs_index]
           # word embedding
@@ -466,7 +469,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
        
           for j in range(0, num_objs):
             name = obj_names[j]
-            entry = {'id': objs_img[j].tolist(), 'embed': obj_embeddings_img[j].tolist()}
+            entry = {'id': objs_img[j].tolist(), 'embed': obj_embeddings_img[j].tolist(), 'center': obj_ctrs[j,:].tolist()}
             if name not in object_db:
               object_db[name] = dict() 
               object_db[name]['objs'] = [entry]
@@ -488,8 +491,12 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
           # batch index
           batch_index = np.unique(triple_to_img[tr_index].cpu()).item()
 	  # 8 point triple boxes
+          # ground truth
           np_triple_boxes_gt = np.array(triple_boxes_gt.cpu()).astype(float)
           tr_img_boxes = np_triple_boxes_gt[tr_index]
+          # predicted boxes
+          np_triple_boxes_pred = np.array(triple_boxes_pred.cpu()).astype(float)
+          tr_img_boxes_pred = np_triple_boxes_pred[tr_index]
           assert len(tr_img) == len(tr_img_boxes)
 
 	  # triplet context: acts like encoded "signature" for each SG
@@ -538,7 +545,9 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
 	    # (from "boxes" (one for each object in "objs") using subj_index and obj_index)
             subj_bbox = tr_img_boxes[n,0:4] 
             obj_bbox = tr_img_boxes[n, 4:8] 
-	    #print(tuple([subj, pred, obj]), subj_bbox, obj_bbox)
+            # predicted bounding boxes
+            subj_bbox_pred = tr_img_boxes_pred[n,0:4] 
+            obj_bbox_pred = tr_img_boxes_pred[n, 4:8] 
 
 	    # SG GCNN embeddings
             subj_embed = obj_embeddings[subj_index].cpu().numpy().tolist()
@@ -567,6 +576,12 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             max_x = np.max([subj_bbox[2], obj_bbox[2]])
             max_y = np.max([subj_bbox[3], obj_bbox[3]])
             relationship['super_bbox'] = [min_x, min_y, max_x, max_y]
+	    # get predicted super box
+            min_x = np.min([subj_bbox_pred[0], obj_bbox_pred[0]])
+            min_y = np.min([subj_bbox_pred[1], obj_bbox_pred[1]])
+            max_x = np.max([subj_bbox_pred[2], obj_bbox_pred[2]])
+            max_y = np.max([subj_bbox_pred[3], obj_bbox_pred[3]])
+            relationship['super_bbox_pred'] = [min_x, min_y, max_x, max_y]
             relationship['subject_embed'] = subj_embed
             relationship['predicate_embed'] = pred_embed
             relationship['object_embed'] = obj_embed
@@ -581,16 +596,17 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             H, W = args.image_size
             x0, x1 = int(round(min_x*W)), int(round(max_x*W))
             y0, y1 = int(round(min_y*H)), int(round(max_y*H))
-            # print('batch index = ', batch_index)
-            #print(relationship['super_bbox'])
-            ###pdb.set_trace()
             #patch = np_imgs[batch_index][y0:y1 + 1, x0:x1+1]
             #plt.imshow(patch); plt.show()
             # np arrays are not serializable
             # to recover np array: patch = np.array(relationship['image'])
             #relationship['image'] = [patch.tolist()] 
-            #relationship['image'] = patch 
-            relationship['full_image'] = [np_imgs[batch_index].tolist()] 
+            #relationship['image'] = patch
+           
+            overlaid_image = vis.overlay_boxes(np_imgs[batch_index], model.vocab, objs_vec, np.expand_dims(np.array(relationship['super_bbox_pred']), axis=0), obj_to_img, W=64, H=64, drawText=False, drawSuperbox=True) # list
+            #plt.imshow(overlaid_image[0]); plt.show()
+            relationship['full_image'] = [overlaid_image] 
+            #relationship['full_image'] = [np_imgs[batch_index].tolist()] 
 
             triplet_str = db_utils.tuple_to_string(triplet)
             if triplet_str not in triplet_db:
@@ -629,10 +645,10 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
   #####  end embedding extraction
 
   # analyze JSON database (stats, examples,etc)
-  # also, compare word vs SG embedding
+  if object_db is not None:
+    analyze_object_db(object_db)
   if triplet_db is not None:
     analyze_embedding_retrieval(triplet_db)
-  #analyze_object_db(object_db, analyze_hierarchical_cluster=True)
   
   #batch_data = {
   #  'objs': objs.detach().cpu().clone(),
@@ -807,7 +823,7 @@ def analyze_embedding_retrieval(db):
   print('number of unfiltered triplets:', len(embeds))
 
   if(visualize_exs):
-    f = open(file_path,'w+')
+    #f = open(file_path,'w+')
     t = 0
     topK_recall = 100 
     topK = 10 
@@ -936,7 +952,7 @@ def analyze_embedding_retrieval(db):
 
 ###
 
-def analyze_object_db(db, analyze_hierarchical_cluster=False):
+def analyze_object_db(db):
 
   # delete singlton objects
   if '__image__' in db.keys():
@@ -950,8 +966,10 @@ def analyze_object_db(db, analyze_hierarchical_cluster=False):
   word_embeds = []
   all_embeds = [] 
   all_ids = []
+  all_ctrs = []
   mean_embed = []
   mean_2d = []
+  mean_center = []
   mean_ids = []
   num_classes = 5 # high frequency classes
   count  = 0
@@ -963,8 +981,7 @@ def analyze_object_db(db, analyze_hierarchical_cluster=False):
     o = db[k]['objs']
     all_embeds += [o[l]['embed'] for l in range(0,len(o))]
     all_ids += [o[l]['id'] for l in range(0,len(o))]
-    # want one word embed for each key
-    word_embeds += [o[0]['word_embed']]
+    all_ctrs += [o[l]['center'] for l in range(0,len(o))]
     # count n-highest frequency classes
     if n < num_classes:
       id = db[k]['objs'][0]['id'] # .tolist()
@@ -976,11 +993,12 @@ def analyze_object_db(db, analyze_hierarchical_cluster=False):
   X = np.array(all_embeds, dtype=np.float64)
   y = np.array(all_ids)
   #X_2d = bh_sne(X) 
+  all_ctrs = np.array(all_ctrs)
 
   # save data to file
   np.savetxt('all_val_embed.txt', X)
   np.savetxt('all_val_ids.txt', y)
-  np.savetxt('all_val_word_embed.txt', np.array(word_embeds))
+  #np.savetxt('all_val_word_embed.txt', np.array(word_embeds))
 
   # get mean/centroid of each class in tsne space.
   unique_ids, u_idx = np.unique(all_ids, return_index=True)
@@ -992,19 +1010,51 @@ def analyze_object_db(db, analyze_hierarchical_cluster=False):
     #### mean_2d += [np.mean(X_2d[idx], axis=0)] 
     # mean SG embedding
     mean_embed += [np.mean(X[idx], axis=0)]
+    mean_center += [np.mean(all_ctrs[idx], axis=0).squeeze()] 
 
   # plot requires numpy arrays
   mean_2d = np.array(mean_2d)
   mean_embed = np.array(mean_embed)
   mean_ids = np.array(mean_ids) 
-  word_embeds = np.array(word_embeds) 
+  mean_center = np.array(mean_center)
+  #word_embeds = np.array(word_embeds) 
   #word_embeds = np.array(torch.stack(word_embeds)) 
 
-  pdb.set_trace() 
   import matplotlib.pyplot as plt
+  # plot object centers 
+  #plt.scatter(all_ctrs[:, 0], all_ctrs[:, 1], c=y, cmap='jet')
+  #plt.title('VG object localizations by class ID')
+  #plt.colorbar()
+  #plt.show()
+
+  # examine localization of human-oriented classes
+  human_id = np.array([3,6,20,27,58,75, 127,159,137,120,122,129])
+  #a[numpy.in1d(a[:, 0], num_list), :]
+  mask = numpy.in1d(mean_ids, human_id)
+  mean_human_ctrs = mean_center[mask]
+  mean_human_ids = mean_ids[mask]
+  human_labels = np.array(sort_objs_by_count)[mask]
+
+  # plot and label localizations of  n-most highest freq classes
+  plt.scatter(mean_human_ctrs[:, 0], mean_human_ctrs[:, 1], c=mean_human_ids, cmap='jet')
+  #plt.scatter(mean_center[0:50:, 0], mean_center[0:50, 1], c=mean_ids[0:50], cmap='jet')
+  plt.title('VG objects by class ID: mean localization')
+  plt.colorbar()
+  plt.ylim(0,1.0)
+  plt.xlim(0,1.0)
+  #plt.show()
+  # annotate points
+  for i, txt in enumerate(human_labels):
+    plt.annotate('  '+txt, (mean_human_ctrs[i, 0], mean_human_ctrs[i, 1]))
+  #for i, txt in enumerate(sort_objs_by_count[0:50]):
+  #  plt.annotate('  '+txt, (mean_center[i, 0], mean_center[i, 1]))
+    #plt.annotate(txt, (z[i], y[i]))
+  plt.show()
+  pdb.set_trace()
+ 
   # plot and label n-most highest freq classes
   plt.scatter(mean_2d[0:50:, 0], mean_2d[0:50, 1], c=mean_ids[0:50] )
-  plt.title('COCO-stuff objects by class ID: mean embedding (top 50 classes)')
+  plt.title('VG objects by class ID: mean embedding (top 50 classes)')
   plt.colorbar()
   #plt.show()
   pdb.set_trace()
@@ -1017,16 +1067,16 @@ def analyze_object_db(db, analyze_hierarchical_cluster=False):
 
   #plt.scatter(X_2d[:, 0], X_2d[:, 1], c=y, cmap='jet')
   #plt.scatter(X_2d[:, 0], X_2d[:, 1], c=y, cmap=plt.cm.get_cmap('RdBu_r'))
-  plt.scatter(X_2d[:, 0], X_2d[:, 1], c=y )
-  plt.title('COCO-stuff objects by class ID') 
-  plt.colorbar()
-  plt.show()
+  ##plt.scatter(X_2d[:, 0], X_2d[:, 1], c=y )
+  ##plt.title('VG objects by class ID') 
+  ##plt.colorbar()
+  ##plt.show()
   # highest frequency classes 
   #plt.scatter(X_2d[0:count, 0], X_2d[0:count, 1], c=y[0:count], cmap=plt.cm.get_cmap('RdBu_r'))
-  plt.scatter(X_2d[0:count, 0], X_2d[0:count, 1], c=y[0:count])
-  plt.title('COCO-stuff objects by class ID\n(highest freq: ' + class_str + ')') 
-  plt.colorbar()
-  plt.show()
+  ##plt.scatter(X_2d[0:count, 0], X_2d[0:count, 1], c=y[0:count])
+  ##plt.title('VG objects by class ID\n(highest freq: ' + class_str + ')') 
+  ##plt.colorbar()
+  ##plt.show()
 
   pdb.set_trace()
 
