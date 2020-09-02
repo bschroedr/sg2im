@@ -868,6 +868,7 @@ def analyze_embedding_retrieval(db):
   # large-scale distribution
   #query_idx = np.random.permutation(np.arange(count)) 
   ##### randomize
+  np.random.seed(args.random_seed) # use numpy random seed!!
   query_idx = np.random.permutation(query_idx)
   print(np_keys[:num_keys])
   print('found ', count, 'query triplets to add to db!')
@@ -933,7 +934,10 @@ def analyze_embedding_retrieval(db):
       dist[id_idx] = 999
       # sort retrieved distances with those of query type "omitted"
       index = dist.argsort(axis=0)
+      print('distance (omit query image): ', dist[index[0:topK]]) # distance of the top10 sorted queries
 
+      if i==16:
+        pdb.set_trace()
       # exclude zero-distance triplets
       ##z = (dist == 0).astype(int)
       ##zero_count = np.sum(z)
@@ -1015,6 +1019,9 @@ def analyze_embedding_retrieval(db):
       if total_recall == []:
         print('no matches found for object class' , args.obj_class)
         pdb.set_trace() 
+      x = np.array(total_recall)
+      print(x[:,0:5])
+      pdb.set_trace()
       mean_recall = np.mean(total_recall, axis=0) # column-wise
       np.savetxt('mean_recall_topK' + str(topK_recall)+ '_' + args.model_label + '.txt', mean_recall)
       # plot recall
@@ -1273,6 +1280,10 @@ def analyze_object_db(db, analyze_hierarchical_cluster=False):
   pdb.set_trace()
 
 def main(args):
+  # in order to reproduce results, set seed
+  torch.manual_seed(args.random_seed)
+  torch.backends.cudnn.deterministic = True
+  torch.backends.cudnn.benchmark = False
 
   if args.device == 'cpu':
     device = torch.device('cpu')

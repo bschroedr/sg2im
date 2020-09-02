@@ -726,6 +726,7 @@ def euclid_dist(t1, t2):
   #return np.sqrt(((t1-t2)**2).sum(axis = 1))
 
 def analyze_embedding_retrieval(db):
+
   hist = {}
   for key in db.keys():
     l = len(db[key])
@@ -865,6 +866,7 @@ def analyze_embedding_retrieval(db):
   # large-scale distribution
   #query_idx = np.random.permutation(np.arange(count)) 
   ##### randomize
+  np.random.seed(args.random_seed) # use numpy random seed!!
   query_idx = np.random.permutation(query_idx)
   print(np_keys[:num_keys])
   print('found ', count, 'query triplets to add to db!')
@@ -1272,6 +1274,11 @@ def analyze_object_db(db, analyze_hierarchical_cluster=False):
   pdb.set_trace()
 
 def main(args):
+
+  # in order to reproduce results, set seed
+  torch.manual_seed(args.random_seed)
+  torch.backends.cudnn.deterministic = True
+  torch.backends.cudnn.benchmark = False
 
   if args.device == 'cpu':
     device = torch.device('cpu')
