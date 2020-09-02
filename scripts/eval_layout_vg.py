@@ -1082,6 +1082,11 @@ def analyze_object_db(db):
 
 def main(args):
 
+  # in order to reproduce results, set seed
+  torch.manual_seed(args.random_seed)
+  torch.backends.cudnn.deterministic = True
+  torch.backends.cudnn.benchmark = False
+  
   if args.device == 'cpu':
     device = torch.device('cpu')
   elif args.device == 'gpu':
