@@ -14,22 +14,48 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# VG_DIR=vg
-VG_DIR=/dataset/vg
-mkdir -p $VG_DIR
+use_imgs=true
+VG_DIR=/Users/brigit/datasets/vg
+
+while [[ $# -gt 0 ]]
+do
+key="$1"
+
+case $key in
+    --no-image)
+    use_imgs=false
+    shift
+    ;;
+    --vg_dir)
+    VG_DIR="$2"
+    shift # past argument
+    shift # past value
+    ;;
+esac
+done
+
+if [ ! -d $VG_DIR ]
+then
+    echo Creating directory $VG_DIR
+    mkdir -p $VG_DIR
+fi
 
 wget https://visualgenome.org/static/data/dataset/objects.json.zip -O $VG_DIR/objects.json.zip
-#wget https://visualgenome.org/static/data/dataset/attributes.json.zip -O $VG_DIR/attributes.json.zip
-#wget https://visualgenome.org/static/data/dataset/relationships.json.zip -O $VG_DIR/relationships.json.zip
-#wget https://visualgenome.org/static/data/dataset/object_alias.txt -O $VG_DIR/object_alias.txt
-#wget https://visualgenome.org/static/data/dataset/relationship_alias.txt -O $VG_DIR/relationship_alias.txt
-#wget https://visualgenome.org/static/data/dataset/image_data.json.zip -O $VG_DIR/image_data.json.zip
-#wget https://cs.stanford.edu/people/rak248/VG_100K_2/images.zip -O $VG_DIR/images.zip --no-check-certificate
-#wget https://cs.stanford.edu/people/rak248/VG_100K_2/images2.zip -O $VG_DIR/images2.zip --no-check-certificate
+wget https://visualgenome.org/static/data/dataset/attributes.json.zip -O $VG_DIR/attributes.json.zip
+wget https://visualgenome.org/static/data/dataset/relationships.json.zip -O $VG_DIR/relationships.json.zip
+wget https://visualgenome.org/static/data/dataset/object_alias.txt -O $VG_DIR/object_alias.txt
+wget https://visualgenome.org/static/data/dataset/relationship_alias.txt -O $VG_DIR/relationship_alias.txt
+wget https://visualgenome.org/static/data/dataset/image_data.json.zip -O $VG_DIR/image_data.json.zip
+if $use_imgs ; then
+    wget https://cs.stanford.edu/people/rak248/VG_100K_2/images.zip -O $VG_DIR/images.zip --no-check-certificate
+    wget https://cs.stanford.edu/people/rak248/VG_100K_2/images2.zip -O $VG_DIR/images2.zip --no-check-certificate
+fi
 
 unzip $VG_DIR/objects.json.zip -d $VG_DIR
 unzip $VG_DIR/attributes.json.zip -d $VG_DIR
 unzip $VG_DIR/relationships.json.zip -d $VG_DIR
 unzip $VG_DIR/image_data.json.zip -d $VG_DIR
-unzip $VG_DIR/images.zip -d $VG_DIR/images
-unzip $VG_DIR/images2.zip -d $VG_DIR/images
+if $use_imgs ; then
+    unzip $VG_DIR/images.zip -d $VG_DIR/images
+    unzip $VG_DIR/images2.zip -d $VG_DIR/images
+fi
