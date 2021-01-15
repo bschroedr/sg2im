@@ -90,7 +90,7 @@ class VgSceneGraphDataset(Dataset):
 
     # Image web URL
     url = self.image_urls[index]
-    image = []
+    image = torch.zeros(5,5) 
     if self.image_dir is not None: 
       img_path = os.path.join(self.image_dir, self.image_paths[index])
       with open(img_path, 'rb') as f:
@@ -208,6 +208,8 @@ def vg_collate_fn(batch):
     all_triple_to_img.append(torch.LongTensor(T).fill_(i))
     obj_offset += O
 
+  import pdb
+  pdb.set_trace()
   all_imgs = torch.cat(all_imgs)
   all_objs = torch.cat(all_objs)
   all_boxes = torch.cat(all_boxes)
@@ -216,9 +218,7 @@ def vg_collate_fn(batch):
   all_attrs = torch.cat(all_attrs)
   all_obj_to_img = torch.cat(all_obj_to_img)
   all_triple_to_img = torch.cat(all_triple_to_img)
-  all_num_attrs = torch.cat(all_num_attrs)
-  all_attrs = torch.cat(all_attrs)
-  all_urls = torch.cat(all_urls)
+  #all_urls = torch.cat(all_urls)
   
   out = (all_imgs, all_objs, all_boxes, all_triples,
          all_obj_to_img, all_triple_to_img, all_num_attrs, all_attrs, all_urls)
