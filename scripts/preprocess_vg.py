@@ -127,11 +127,11 @@ def main(args):
     print('Writing file "%s"' % h5_path)
     with h5py.File(h5_path, 'w') as h5_file:
       for name, ary in split_arrays.items():
-        print('Creating datset: ', name, ary.shape, ary.dtype)
+        print('Creating dataset: ', name, ary.shape, ary.dtype)
         h5_file.create_dataset(name, data=ary)
       print('Writing image paths')
       #image_paths, image_urls = get_image_paths(image_id_to_image, image_ids)
-      image_paths, image_urls, image_data = get_image_data(image_id_to_image, image_ids)
+      image_paths, image_urls, height, width = get_image_data(image_id_to_image, image_ids)
       path_dtype = h5py.special_dtype(vlen=str)
       path_shape = (len(image_paths),)
       path_dset = h5_file.create_dataset('image_paths', path_shape,
@@ -142,10 +142,9 @@ def main(args):
                                          dtype=path_dtype)
       for i, u in enumerate(image_urls):
         url_dset[i] = u
-      img_data_dset = h5_file.create_dataset('image_data', path_shape,
-                                         dtype=path_dtype)
-      for i, d in enumerate(image_data):
-        img_data_dset[i] = d
+      # add in metadata string as a sanity check
+      h5_file.create_dataset('height', data=height)
+      h5_file.create_dataset('width', data=width)
     print()
 
   print('Writing vocab to "%s"' % args.output_vocab_json)
@@ -176,14 +175,20 @@ def get_image_data(image_id_to_image, image_ids):
   paths = []
   urls = []
   img_data = []
+  width = []
+  height = []
   for image_id in image_ids:
     image = image_id_to_image[image_id]
+    h = image['height']
+    w = image['width']
     base, filename = os.path.split(image['url'])
     path = os.path.join(os.path.basename(base), filename)
     paths.append(path)
     urls.append(image['url'])
     img_data.append(image)
-  return paths, urls, img_data
+    width.append(w)
+    height.append(h)
+  return paths, urls, np.asarray(height), np.asarray(width) 
 
 
 def handle_images(args, image_ids, h5_file):
