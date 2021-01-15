@@ -2,6 +2,7 @@
 import sys
 sys.path.append("./") # in order to include sg2im as module
 import argparse
+import pprint
 import os
 import json
 import math
@@ -35,7 +36,7 @@ parser.add_argument('--random_seed', default=42, type=int)
 
 
 def generate_db(args, loader, vocab):
-  
+  num_samples = 0 
   db = [] 
   # iterate over all batches of images
   with torch.no_grad():
@@ -50,14 +51,18 @@ def generate_db(args, loader, vocab):
       # get batch
       imgs, objs, boxes, triples, obj_to_img, triple_to_img, num_attrs, attrs, urls = batch
 
+      num_samples += args.batch_size 
+      if num_samples > args.num_val_samples:
+        break
+
       for i in range(0, args.batch_size): 
         objs_index = np.where(obj_to_img.numpy() == i) # objects indices for image in batch
         objs_img = objs[objs_index] # object class ids for image
-        obj_names = np.array(vocab['object_idx_to_name'])[objs_img] # object class labels 
+        #obj_names = np.array(vocab['object_idx_to_name'])[objs_img] # object class labels 
         obj_boxes = boxes[objs_index] 
         img_url = urls[i]
 
-        # process all triples (e.g. relationships) for in image
+        # process all triples (e.g. relationships) in image
         tr_index = np.where(triple_to_img == i)
         tr_img = triples[tr_index]
         num_triples = len(tr_img)
@@ -66,7 +71,7 @@ def generate_db(args, loader, vocab):
         # p: use this value as is (yields 'pred_idx' for 'pred_idx_to_name')
         s, p, o, rel_ids = np.split(tr_img, 4, axis=1)
 
-        pdb.set_trace()
+        #pdb.set_trace()
         for n in range(0, num_triples):
           subj_index = s[n]
           subj = np.array(vocab['object_idx_to_name'])[objs[subj_index]]
@@ -76,12 +81,16 @@ def generate_db(args, loader, vocab):
           if obj == '__image__': # singleton objects
             continue
           rel_id = rel_ids[n].item()
-          subj_box = boxes[subj_index]
-          obj_box = boxes[obj_index]
-          # image url
-          
-          print('(', rel_id, subj, pred, obj, img_url, ')')
+          subj_box = boxes[subj_index].tolist()
+          obj_box = boxes[obj_index].tolist()
+          relationship = {}
+          relationship['metadata'] = {'image_url': img_url, 'vg_scene_id': 0, 'vg_relationship_id': rel_id}
+          relationship['data'] = {'s_box': subj_box, 'o_box': obj_box, 'subject': subj, 'predicate': pred, 'object': obj}
+          db.append(relationship)
+          pprint.pprint(relationship)
 
+  with open('docs.json', 'w') as json_file:
+    json.dump(db, json_file)
 
   return db
 
@@ -122,9 +131,12 @@ def build_loaders(args):
 
 def main(args):
 
-  # Create data loader for VG
+  # data loader for VG
   vocab, val_loader = build_loaders(args)
+  # create test db 
   db = generate_db(args, val_loader, vocab)  
+  # generate query db
+  #generate_queries(args, db)
   
 if __name__ == '__main__':
   args = parser.parse_args()
