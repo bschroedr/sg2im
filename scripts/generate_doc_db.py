@@ -110,10 +110,12 @@ def generate_db(args, loader, vocab):
   return db, image_id_to_entries
 
 def generate_queries(args, db, image_id_to_entries, num_queries=1000):
+  print('Database has ', len(db), ' documents.')
   queries = {}
   q = 0
   num_entries = len(db)
-  img_ids = range(0,10) # permute randomly based upon num_querie
+  # need to associate with number of queries
+  img_ids = range(0,100) # permute randomly based upon num_queries
   entries_to_delete = []
   for i in img_ids: 
     query_id = image_id_to_entries[i][0] # query is first triple in set
