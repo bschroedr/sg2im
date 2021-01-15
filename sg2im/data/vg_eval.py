@@ -208,8 +208,6 @@ def vg_collate_fn(batch):
     all_triple_to_img.append(torch.LongTensor(T).fill_(i))
     obj_offset += O
 
-  import pdb
-  pdb.set_trace()
   all_imgs = torch.cat(all_imgs)
   all_objs = torch.cat(all_objs)
   all_boxes = torch.cat(all_boxes)
