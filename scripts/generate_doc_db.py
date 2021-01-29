@@ -91,8 +91,8 @@ def generate_db(args, loader, vocab):
           if obj == '__image__': # singleton objects
             continue
           rel_id = rel_ids[n].item()
-          subj_box = boxes[subj_index].tolist()
-          obj_box = boxes[obj_index].tolist()
+          subj_box = boxes[subj_index][0].tolist()
+          obj_box = boxes[obj_index][0].tolist()
           relationship = {}
           relationship['metadata'] = {'image_url': img_url, 'vg_scene_id': img_id, 'vg_relationship_id': rel_id}
           relationship['data'] = {'s_box': subj_box, 'o_box': obj_box, 'subject': subj, 'predicate': pred, 'object': obj}
@@ -111,16 +111,14 @@ def generate_db(args, loader, vocab):
 
 def generate_queries(args, db, image_id_to_entries, num_queries=1000):
   print('Database has ', len(db), ' documents.')
-  queries = {}
-  q = 0
+  queries = [] 
   num_entries = len(db)
   # need to associate with number of queries
   img_ids = range(0,100) # permute randomly based upon num_queries
   entries_to_delete = []
   for i in img_ids: 
     query_id = image_id_to_entries[i][0] # query is first triple in set
-    queries[q] = db[query_id]
-    q += 1
+    queries.append(db[query_id])
     entries_to_delete += image_id_to_entries[i]
 
   # delete queries from db
@@ -178,6 +176,7 @@ def main(args):
     json.dump(db, json_file)
   with open('queries.json', 'w') as json_file:
     json.dump(queries, json_file)
+  pprint.pprint(queries)
   
 if __name__ == '__main__':
   args = parser.parse_args()
