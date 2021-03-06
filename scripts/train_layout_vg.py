@@ -38,6 +38,7 @@ from sg2im.discriminators import PatchDiscriminator, AcCropDiscriminator, CondGA
 from sg2im.losses import get_gan_losses
 from sg2im.metrics import jaccard, relation_score
 from sg2im.focalloss import FocalLoss
+from sg2im.superconloss import SupConLoss
 
 from sg2im.model_layout_vg import Sg2ImModel
 from sg2im.utils import int_tuple, float_tuple, str_tuple
@@ -146,6 +147,8 @@ def parse_args():
   parser.add_argument('--masks_to_triplet_pixels', default=False, type=int)
   # used masked SG loss
   parser.add_argument('--use_masked_sg', default=False, type=int)
+  # freeze relationship embedding
+  parser.add_argument('--freeze_rel_embedding', default=False, type=int)
 
   # Generator options
   parser.add_argument('--mask_size', default=16, type=int) # Set this to 0 to use no masks
@@ -175,10 +178,14 @@ def parse_args():
   parser.add_argument('--l1_pixel_loss_weight', default=1.0, type=float)
   parser.add_argument('--bbox_pred_loss_weight', default=10, type=float)
   parser.add_argument('--triplet_bboxes_pred_loss_weight', default=10, type=float)
-  parser.add_argument('--triplet_superboxes_pred_loss_weight', default=10, type=float)
+  parser.add_argument('--triplet_superboxes_pred_loss_weight', default=0, type=float)
   parser.add_argument('--triplet_mask_loss_weight', default=10, type=float)
   parser.add_argument('--predicate_pred_loss_weight', default=0, type=float) 
+  parser.add_argument('--subject_pred_loss_weight', default=0, type=float) 
   parser.add_argument('--object_pred_loss_weight', default=0, type=float) 
+  parser.add_argument('--object_class_loss_weight', default=0, type=float) 
+  parser.add_argument('--rel_embed_loss_weight', default=0, type=float) 
+  parser.add_argument('--rel_class_loss_weight', default=0, type=float) 
   parser.add_argument('--perceptual_loss_weight', default=0, type=float)
   parser.add_argument('--grayscale_perceptual', action='store_true', help='Calculate perceptual loss with grayscale images')
   parser.add_argument('--log_perceptual', action='store_true', help='Take logarithm of perceptual loss')
@@ -432,8 +439,8 @@ def get_rel_score(args, t, loader, model):
       batch = [tensor.cuda() for tensor in batch]
       #batch = [tensor for tensor in batch]
       masks = None
-      if len(batch) == 6:
-        imgs, objs, boxes, triples, obj_to_img, triple_to_img = batch
+      if len(batch) == 8:
+        imgs, objs, boxes, triples, obj_to_img, triple_to_img, num_attrs, attrs = batch
         triplet_masks = None
       elif len(batch) == 8:
         imgs, objs, boxes, masks, triples, obj_to_img, triple_to_img, triplet_masks = batch
@@ -444,14 +451,16 @@ def get_rel_score(args, t, loader, model):
       # (s)ubj, (o)bj index for 'objs' array
       s, p, o = np.split(triples, 3, axis=1)
       objects = objs[o]
+      subjects = objs[s]
 
+    
       objs = objs.detach()
       triples = triples.detach()
       # Run the model as it has been run during training
       model_masks = masks
-      model_out = model(objs, triples, obj_to_img, boxes_gt=boxes, masks_gt=model_masks)
+      model_out = model(objs, triples, obj_to_img, boxes_gt=boxes, masks_gt=model_masks, tr_to_img=triple_to_img)
       # imgs_pred, boxes_pred, masks_pred, predicate_scores = model_out
-      imgs_pred, boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores, obj_embeddings, pred_embeddings, triple_boxes_pred, triple_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores = model_out
+      imgs_pred, boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores, obj_embeddings, pred_embeddings, triple_boxes_pred, triple_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores, context_tr_vecs, input_tr_vecs, obj_class_scores, rel_class_scores, subj_scores, rel_embedding, mask_rel_embedding, pred_ground = model_out
        
       num_samples += imgs.size(0)
       if num_samples >= args.num_val_samples:
@@ -486,8 +495,8 @@ def check_model(args, t, loader, model, logger=None, log_tag='', write_images=Fa
     for batch in loader:
       batch = [tensor.cuda() for tensor in batch]
       masks = None
-      if len(batch) == 6:
-        imgs, objs, boxes, triples, obj_to_img, triple_to_img = batch
+      if len(batch) == 8:
+        imgs, objs, boxes, triples, obj_to_img, triple_to_img, num_attrs, attrs = batch
         triplet_masks = None
       elif len(batch) == 8:
         imgs, objs, boxes, masks, triples, obj_to_img, triple_to_img, triplet_masks = batch
@@ -497,12 +506,13 @@ def check_model(args, t, loader, model, logger=None, log_tag='', write_images=Fa
       # (s)ubj, (o)bj index for 'objs' array
       s, p, o = np.split(triples, 3, axis=1)
       objects = objs[o]
+      subjects = objs[s]
 
       # Run the model as it has been run during training
       model_masks = masks
-      model_out = model(objs, triples, obj_to_img, boxes_gt=boxes, masks_gt=model_masks)
+      model_out = model(objs, triples, obj_to_img, boxes_gt=boxes, masks_gt=model_masks, tr_to_img=triple_to_img)
       # imgs_pred, boxes_pred, masks_pred, predicate_scores = model_out
-      imgs_pred, boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores, obj_embeddings, pred_embeddings, triplet_boxes_pred, triplet_boxes, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores = model_out
+      imgs_pred, boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores, obj_embeddings, pred_embeddings, triplet_boxes_pred, triplet_boxes, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores, context_tr_vecs, input_tr_vecs, obj_class_scores, rel_class_scores,  subj_scores, rel_embedding, mask_rel_embedding, pred_ground = model_out
 
       # add additional information for GT boxes (hack to not change coco.py)
       boxes_info = None
@@ -533,6 +543,12 @@ def check_model(args, t, loader, model, logger=None, log_tag='', write_images=Fa
                                 triplet_superboxes, triplet_superboxes_pred,
                                 objects, obj_scores,
                                 pred_mask_gt, pred_mask_scores,
+                                objs, obj_class_scores, 
+                                predicates, rel_class_scores,                               
+                                rel_embedding,
+                                mask_rel_embedding,
+                                subjects, subj_scores,
+                                pred_ground,
                                 skip_perceptual_loss)
 
       losses['total_loss'] = total_loss.item()
@@ -621,6 +637,12 @@ def calculate_model_losses(args, skip_pixel_loss, model, img, img_pred,
                            triplet_superboxes, triplet_superboxes_pred,
                            objects, obj_scores,
                            pred_mask_gt, pred_mask_scores,
+                           objs, obj_class_scores,
+                           predicates2, rel_class_scores,
+                           rel_embedding,
+                           mask_rel_embedding,
+                           subjects, subj_scores,
+                           pred_ground,
                            skip_perceptual_loss,
                            perceptual_extractor=None):  #FeatureExtractor(requires_grad=False).cuda()):
   total_loss = torch.zeros(1).to(img)
@@ -644,8 +666,12 @@ def calculate_model_losses(args, skip_pixel_loss, model, img, img_pred,
                         args.bbox_pred_loss_weight)
 
   # superbox regression for triplets
-  if args.triplet_superboxes_pred_loss_weight > 0 and triplet_superboxes is not None and triplet_superboxes_pred is not None:
-    loss_triplet_superboxes = F.mse_loss(triplet_superboxes_pred, triplet_superboxes)
+  if args.triplet_superboxes_pred_loss_weight > 0 and triplet_superboxes_pred is not None:
+  #if args.triplet_superboxes_pred_loss_weight > 0 and triplet_superboxes is not None and triplet_superboxes_pred is not None:
+    img_superbox = torch.FloatTensor([0.0, 0.0, args.image_size[0], args.image_size[0]])
+    img_superboxes = img_superbox.repeat(len(triplet_superboxes_pred), 1) 
+    loss_triplet_superboxes = F.mse_loss(triplet_superboxes_pred, img_superboxes.cuda())
+    #loss_triplet_superboxes = F.mse_loss(triplet_superboxes_pred, triplet_superboxes)
     total_loss = add_loss(total_loss, loss_triplet_superboxes, losses, 'triplet_superboxes_pred',
                         args.triplet_superboxes_pred_loss_weight)
  
@@ -662,6 +688,24 @@ def calculate_model_losses(args, skip_pixel_loss, model, img, img_pred,
     total_loss = add_loss(total_loss, triplet_mask_loss, losses, 'triplet_mask_loss',
                           args.triplet_mask_loss_weight)
 
+  # predicate grounding 
+  #if pred_ground is not None and triplet_bboxes is not None:
+  #  t = triplet_bboxes 
+  #  ground = torch.transpose(torch.stack([(t[:,0]+t[:,2])/2, (t[:,1]+t[:,3])/2, (t[:,4]+t[:,6])/2, (t[:,5]+t[:,7])/2] ), 0, 1)
+    #g = ground
+    #R = torch.sqrt((g[:,0]-g[:,2])**2 + (g[:,1]-g[:,3])**2)
+    #ground = torch.cat([ground, R.unsqueeze(1)], dim=1)
+ #   loss_ground = F.mse_loss(pred_ground, ground)
+ #   total_loss = add_loss(total_loss, loss_ground, losses, 'pred_ground', 
+ #                       args.triplet_bboxes_pred_loss_weight)
+
+  if args.subject_pred_loss_weight > 0:
+    loss_subject = F.cross_entropy(subj_scores, torch.squeeze(subjects))
+    #p = (-loss_subject).exp()
+    #print('[subj pred probability]: ', p)
+    total_loss = add_loss(total_loss, loss_subject, losses, 'subject_pred',
+                          args.subject_pred_loss_weight)
+ 
   if args.object_pred_loss_weight > 0:
     loss_object = F.cross_entropy(obj_scores, torch.squeeze(objects))
     #loss_object = FocalLoss(gamma=2.0, alpha=0.75)(obj_scores, objects)
@@ -670,6 +714,37 @@ def calculate_model_losses(args, skip_pixel_loss, model, img, img_pred,
     total_loss = add_loss(total_loss, loss_object, losses, 'object_pred',
                           args.object_pred_loss_weight)
  
+  if args.object_class_loss_weight > 0:
+    loss_class = F.cross_entropy(obj_class_scores, objs)
+    #loss_object = FocalLoss(gamma=2.0, alpha=0.75)(obj_scores, objects)
+    #p = (-loss_class).exp()
+    #print('[obj class probability]: ', p)
+    total_loss = add_loss(total_loss, loss_class, losses, 'object_class_pred',
+                          args.object_class_loss_weight)
+ 
+  # supervised contrastive loss 
+  if args.rel_embed_loss_weight > 0:
+    # unaugmented relationship embeddings 
+    rel_embedding = rel_embedding.unsqueeze(1)
+    pr = predicates.unsqueeze(1) # [num_preds, 1]
+    temperature = 0.07 # borrowed from implementation code
+    criterion = SupConLoss(temperature) 
+    loss_rel_embed = criterion(rel_embedding, predicates) 
+    #loss_rel_embed = criterion(mask_rel_embedding, predicates) 
+    #p = (-loss_rel_embed).exp()
+    #print('[rel embed probability]: ', p)
+    total_loss = add_loss(total_loss, loss_rel_embed, losses, 'rel_embed_SCL',
+                          args.rel_embed_loss_weight)
+
+  # freeze relationship embedding and train classifier
+  if args.rel_class_loss_weight > 0 and args.freeze_rel_embedding:
+    loss_rel = F.cross_entropy(rel_class_scores, predicates2)
+    #loss_rel = FocalLoss(gamma=2.0, alpha=0.75)(rel_class_scores, predicates2)
+    #p = (-loss_rel).exp()
+    #print('[rel class probability]: ', p)
+    total_loss = add_loss(total_loss, loss_rel, losses, 'rel_class_pred',
+                          args.rel_class_loss_weight)
+
   if args.predicate_pred_loss_weight > 0:
     loss_predicate = F.cross_entropy(predicate_scores, predicates)
     #loss_predicate = FocalLoss(gamma=2.0, alpha=0.75)(predicate_scores, predicates)
@@ -789,6 +864,11 @@ def main(args):
     model.load_state_dict(checkpoint['model_state'])
     optimizer.load_state_dict(checkpoint['optim_state'])
 
+    # freeze relationship embedding
+    if args.freeze_rel_embedding:
+      for param in model.rel_class_aux_net.parameters():
+        param.requires_grad = False
+ 
     if obj_discriminator is not None:
       obj_discriminator.load_state_dict(checkpoint['d_obj_state'])
       optimizer_d_obj.load_state_dict(checkpoint['d_obj_optim_state'])
@@ -850,8 +930,8 @@ def main(args):
       t += 1
       batch = [tensor.cuda() for tensor in batch]
       masks = None
-      if len(batch) == 6:
-        imgs, objs, boxes, triples, obj_to_img, triple_to_img = batch
+      if len(batch) == 8:
+        imgs, objs, boxes, triples, obj_to_img, triple_to_img, num_attrs, attrs = batch
         triplet_masks = None 
       elif len(batch) == 8:
         imgs, objs, boxes, masks, triples, obj_to_img, triple_to_img, triplet_masks = batch
@@ -863,15 +943,16 @@ def main(args):
       # (s)ubj, (o)bj index for 'objs' array
       s, p, o = np.split(triples, 3, axis=1)
       objects = objs[o]
+      subjects = objs[s]
 
       with timeit('forward', args.timing):
         model_boxes = boxes
         model_masks = masks
         model_out = model(objs, triples, obj_to_img,
-                          boxes_gt=model_boxes, masks_gt=model_masks
+                          boxes_gt=model_boxes, masks_gt=model_masks, tr_to_img=triple_to_img
                           )
         # imgs_pred, boxes_pred, masks_pred, predicate_scores = model_out
-        imgs_pred, boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores, obj_embeddings, pred_embeddings, triplet_boxes_pred, triplet_boxes, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores = model_out
+        imgs_pred, boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores, obj_embeddings, pred_embeddings, triplet_boxes_pred, triplet_boxes, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores, context_tr_vecs, input_tr_vecs, obj_class_scores, rel_class_scores, subj_scores, rel_embedding, mask_rel_embedding, pred_ground = model_out
         # boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores = model_out
      
       # add additional information for GT boxes (hack to not change coco.py)
@@ -905,6 +986,12 @@ def main(args):
                                   triplet_superboxes, triplet_superboxes_pred,
                                   objects, obj_scores,
                                   pred_mask_gt, pred_mask_scores,
+                                  objs, obj_class_scores,
+                                  predicates, rel_class_scores,
+                                  rel_embedding, 
+                                  mask_rel_embedding,
+                                  subjects, subj_scores,
+                                  pred_ground,
                                   skip_perceptual_loss,
                                   perceptual_extractor=vgg_featureExractor)
         else:
@@ -918,6 +1005,12 @@ def main(args):
                                     triplet_superboxes, triplet_superboxes_pred,
                                     objects, obj_scores,
                                     pred_mask_gt, pred_mask_scores,
+                                    objs, obj_class_scores,
+                                    predicates, rel_class_scores,
+                                    rel_embedding,
+                                    mask_rel_embedding,
+                                    subjects, subj_scores,
+                                    pred_ground,
                                     skip_perceptual_loss)  
           #total_loss, losses =  calculate_model_losses(
           #                          args, skip_pixel_loss, model, imgs, imgs_pred,
