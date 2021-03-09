@@ -695,12 +695,12 @@ def calculate_recall(results, count):
   num_elem = len(results)
   all_r = np.full(num_elem, 1).tolist() 
   for i in range(0,num_elem):
-    if results[i] == 1:
-      break
-    else: 
-      all_r[i] = 0
-    #r = sum(results[:i+1])/count # this is not the most efficient way to do this!
-    #all_r += [r]
+    #if results[i] == 1:
+    #  break
+    #else: 
+    #  all_r[i] = 0
+    r = sum(results[:i+1])/count # this is not the most efficient way to do this!
+    all_r += [r]
   return np.array(all_r)
 
 # calculate distances between all elements in A

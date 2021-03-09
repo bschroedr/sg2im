@@ -430,7 +430,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
         model_out = model(objs, triples, obj_to_img, boxes_gt=boxes, masks_gt=model_masks, tr_to_img=triple_to_img)
         ####model_out = model(objs, triples, obj_to_img, boxes_gt=boxes, masks_gt=model_masks,)
         #imgs_pred, boxes_pred, masks_pred, predicate_scores = model_out
-        imgs_pred, boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores, obj_embeddings, pred_embeddings, triple_boxes_pred, triple_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores, context_tr_vecs, input_tr_vecs, obj_class_scores, rel_class_scores, rel_embeddings = model_out # mapc_bind = model_out
+        imgs_pred, boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores, obj_embeddings, pred_embeddings, triple_boxes_pred, triple_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores, context_tr_vecs, input_tr_vecs, obj_class_scores, rel_class_scores, subj_scores, rel_embedding, mask_rel_embedding, pred_ground = model_out # mapc_bind = model_out
         # Run model without GT boxes to get predicted layout masks
         #model_out = model(objs, triples, obj_to_img)
         #layout_boxes, layout_masks = model_out[5], model_out[6]
@@ -452,7 +452,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
         super_boxes = []
  
         # use fine-tuned RELATION EMBEDDING 
-        ###pred_embeddings = rel_embeddings 
+        pred_embeddings = rel_embedding 
 
         # open file to record all triplets, per image, in a batch
         file_path = os.path.join(img_dir, 'all_batch_triplets.txt')
@@ -537,6 +537,9 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
 	  # iterate over all triplets in image to form (subject, predicat, object) tuples
           relationship_data = []
           num_triples = len(tr_img)
+          # predicted triplet boxes
+          pred_tr_boxes = np.concatenate((np.array(boxes_pred[s]), np.array(boxes_pred[o])), axis=1)
+          pred_tr_boxes = np.reshape(pred_tr_boxes, (num_triples, 8))
 
 	  # need to iterate over all triples due to information that needs to be extracted per triple
           for n in range(0, num_triples):
@@ -582,6 +585,8 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
 	    # (from "boxes" (one for each object in "objs") using subj_index and obj_index)
             subj_bbox = tr_img_boxes[n,0:4] 
             obj_bbox = tr_img_boxes[n, 4:8] 
+            pred_subj_bbox = pred_tr_boxes[n,0:4]
+            pred_obj_bbox = pred_tr_boxes[n,4:8]
 	    #print(tuple([subj, pred, obj]), subj_bbox, obj_bbox)
 
 	    # SG GCNN embeddings
@@ -615,6 +620,11 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             max_x = np.max([subj_bbox[2], obj_bbox[2]])
             max_y = np.max([subj_bbox[3], obj_bbox[3]])
             relationship['super_bbox'] = [min_x, min_y, max_x, max_y]
+            min_x = np.min([pred_subj_bbox[0], pred_obj_bbox[0]])
+            min_y = np.min([pred_subj_bbox[1], pred_obj_bbox[1]])
+            max_x = np.max([pred_subj_bbox[2], pred_obj_bbox[2]])
+            max_y = np.max([pred_subj_bbox[3], pred_obj_bbox[3]])
+            relationship['pred_super_bbox'] = [min_x, min_y, max_x, max_y]
             super_boxes += [relationship['super_bbox']]
             relationship['subject_embed'] = subj_embed
             relationship['predicate_embed'] = pred_embed
@@ -623,7 +633,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             # contextual embedding
             #relationship['context_embed'] = context_embed
             #relationship['mapc_embed'] = mapc_embed
-            relationship['inout_embed'] = inout_embed
+            relationship['input_embed'] = input_embed
             # assign triplet an image id
             relationship['img_id'] = img_id
 
@@ -640,7 +650,11 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             # to recover np array: patch = np.array(relationship['image'])
             #relationship['image'] = [patch.tolist()] 
             #relationship['image'] = patch 
-            relationship['full_image'] = [np_imgs[batch_index].tolist()] 
+            sb_overlay_image = vis.overlay_boxes(np_imgs[batch_index], model.vocab, objs_vec, 
+                               torch.from_numpy(np.array(relationship['super_bbox'])), obj_to_img, W=64, H=64, 
+                               drawText=False, drawSuperbox=True)
+            relationship['full_image'] = [sb_overlay_image] 
+            #relationship['full_image'] = [np_imgs[batch_index].tolist()] 
 
             triplet_str = db_utils.tuple_to_string(triplet)
             if triplet_str not in triplet_db:
@@ -807,18 +821,14 @@ def analyze_embedding_retrieval(db):
     for t in range(0, len(db[k])):
       # report results using this 
       embeds += [db[k][t]['embed']] # concatenated embeddings! <s,p,o>
-      #embeds += [db[k][t]['inout_embed']] # concatenated embeddings! <s,p,o>
+      #embeds += [db[k][t]['input_embed']] # concatenated embeddings! <s,p,o>
       #embeds += [db[k][t]['context_embed']] # concatenated embeddings! <s,p,o>
       # VSA
       #embeds += [db[k][t]['mapc_embed']]
-      #embeds += db[k][t]['subject_embed'] # good result when subject is fixed - context? interesting analysis to be done here!  
+      # baselines
+      #embeds += db[k][t]['subject_embed']  
       #embeds += db[k][t]['object_embed'] 
       #embeds += [ db[k][t]['predicate_embed'] ] # too many 0s in topK distances 
-      # NOTE: this is hacky programming and should be fixed!
-      # best for COCO
-      ##embeds += [np.concatenate((db[k][t]['subject_embed'][0], db[k][t]['object_embed'][0])).tolist()] # works  
-      # randomized predicate
-      ###embeds += [np.concatenate((db[k][t]['subject_embed'][0], db[k][t]['object_embed'][0])).tolist()] 
       su += db[k][t]['subject_embed'] 
       ob += db[k][t]['object_embed'] 
       pr += [ db[k][t]['predicate_embed'] ]

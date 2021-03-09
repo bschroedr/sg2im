@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import pdb
+import numpy as np
 import math
 import torch
 import torch.nn as nn
@@ -65,7 +66,8 @@ class Sg2ImModel(nn.Module):
     self.use_masked_sg = use_masked_sg
     # hack to deal with vocabs with differing # of predicates
     self.mask_pred = 46 # vocab['idx_to_pred_name'][46] = 'none'
-    #self.mask_pred = vocab['pred_name_to_idx']['none'] 
+    #self.mask_pred = vocab['pred_name_to_idx']['none']
+    self.embedding_dim = embedding_dim 
   
     num_objs = len(vocab['object_idx_to_name'])
     num_preds = len(vocab['pred_idx_to_name'])
@@ -114,6 +116,7 @@ class Sg2ImModel(nn.Module):
     self.triplet_embed_net = None
     self.triplet_mask_net = None
     self.triplet_superbox_net = None
+    self.pred_ground_net = None
 
     # output dimension
     triplet_box_net_dim = 8
@@ -158,6 +161,10 @@ class Sg2ImModel(nn.Module):
 
     rel_aux_layers = [2 * embedding_dim + 8, gconv_hidden_dim, num_preds]
     self.rel_aux_net = build_mlp(rel_aux_layers, batch_norm=mlp_normalization)
+
+    # subject prediction network
+    subj_aux_layers = [2 * embedding_dim + 8, gconv_hidden_dim, num_objs]
+    self.subj_aux_net = build_mlp(subj_aux_layers, batch_norm=mlp_normalization)
     
     # object prediction network
     obj_aux_layers = [2 * embedding_dim + 8, gconv_hidden_dim, num_objs]
@@ -176,10 +183,17 @@ class Sg2ImModel(nn.Module):
     pred_mask_layers = [2 * embedding_dim, gconv_hidden_dim, num_preds]
     self.pred_mask_net = build_mlp(pred_mask_layers, batch_norm=mlp_normalization)
 
+    pred_ground_net_dim = 4
+    # input dimension 128 for relationship
+    pred_ground_net_layers = [gconv_dim, gconv_hidden_dim, pred_ground_net_dim]
+    self.pred_ground_net = build_mlp(pred_ground_net_layers, batch_norm=mlp_normalization)
+
     # input dimn is 3*128 for concatenated triplet
     triplet_context_layers = [4*gconv_dim, gconv_hidden_dim, 3*gconv_dim]
-    self.triplet_context_net = nn.Linear(4*gconv_dim, 3*gconv_dim) 
-    #self.triplet_context_net = build_mlp(triplet_context_layers, batch_norm=mlp_normalization)
+    #self.triplet_context_net = nn.Linear(4*gconv_dim, 3*gconv_dim) 
+    #triplet_context_layers = [3*gconv_dim, gconv_hidden_dim, 4]
+    #self.triplet_context_net = nn.Linear(4*gconv_dim, 3*gconv_dim) 
+    self.triplet_context_net = build_mlp(triplet_context_layers, batch_norm=mlp_normalization)
 
     if sg_context_dim > 0:
       refinement_kwargs = {
@@ -374,20 +388,57 @@ class Sg2ImModel(nn.Module):
     rel_aux_input = torch.cat([s_boxes, o_boxes, s_vecs, o_vecs], dim=1)
     rel_scores = self.rel_aux_net(rel_aux_input)
 
+    # subject prediction
+    subj_aux_input = torch.cat([s_boxes, o_boxes, p_vecs, o_vecs], dim=1)
+    subj_scores = self.subj_aux_net(subj_aux_input)
+
     # object prediction
     obj_aux_input = torch.cat([s_boxes, o_boxes, s_vecs, p_vecs], dim=1)
     obj_scores = self.obj_aux_net(obj_aux_input)
 
     # object class prediction (for output object vectors)
     obj_class_scores = self.obj_class_aux_net(obj_vecs)
-  
+ 
     # relationship class prediction (for output object vectors)
     # relationship embedding (very small embedding)
-    rel_embedding = self.rel_embed_aux_net(pred_vecs) # output predicate embeddings
+    # augment relationship embedding
+    use_augmentation = False 
+    mask_rel_embedding = None 
+    if use_augmentation:
+      num_augs = 4
+      num_preds = len(p)
+      mask_rel_embedding = torch.zeros((num_preds,num_augs+1,self.embedding_dim), dtype=obj_vecs.dtype, device=obj_vecs.device)
+      rel_embedding = []
+      #pred_vecs_mask = np.zeros((num_preds,num_augs,self.embedding_dim))
+      # mask embedding perc_aug of vectors with 0 
+      perc_aug = torch.FloatTensor([0.4]) # hyperparameter
+      num_mask = torch.floor(perc_aug*len(pred_vecs[0])).cpu().numpy()[0].astype(int)
+      #p_ids = []
+      for i in range(num_preds):
+        pred = pred_vecs[i]
+        #p_id = p[i]
+        vecs = [pred] 
+        #p_ids += [p_id]
+        for j in range(num_augs):
+          # pick a random set of indices to zero-out
+          rand_idx = torch.randperm(len(pred_vecs[0])) # 0-127 range shuffled
+          mask_idx = rand_idx[:num_mask]
+          pred_mask = pred.detach().clone()
+          pred_mask[mask_idx] = 0.0
+          vecs += [pred_mask]
+        # project masked augmented relationship vectors  
+        pred_mask = self.rel_embed_aux_net(torch.stack(vecs)) # output predicate embeddings
+        pred_mask = F.normalize(pred_mask, dim=1)
+        mask_rel_embedding[i,:,:] = pred_mask
+        rel_embedding += [pred_mask[0]]
+   
+    #rel_embedding = torch.stack(rel_embedding)
+    # projection head for supervised contrastive loss  
+    rel_embedding = self.rel_embed_aux_net(pred_vecs) # output projected predicate embeddings
     rel_embedding = F.normalize(rel_embedding, dim=1)
 
-    # relationship class prediction using trained rel_embedding 
-    rel_class_scores = self.rel_class_aux_net(rel_embedding) 
+    # relationship class prediction on predicates 
+    rel_class_scores = self.rel_class_aux_net(pred_vecs) 
 
     # concatenate triplet vectors
     s_vecs_pred, o_vecs_pred = obj_vecs[s], obj_vecs[o] 
@@ -419,10 +470,17 @@ class Sg2ImModel(nn.Module):
       # predict 2 point superboxes
       triplet_superboxes_pred = self.triplet_superbox_net(triplet_input) # s/p/o (bboxes?) 
 
+    # predicate grounding 
+    pred_ground = None
+    if self.pred_ground_net is not None:
+      # predict 2 point pred grounding
+      pred_ground = self.pred_ground_net(pred_vecs) # s/p/o (bboxes?) 
+
     # triplet context
     triplet_context_input = torch.cat([context_obj_vecs, s_vecs_pred, pred_vecs, o_vecs_pred], dim=1)
     # output dimension is 384
     context_tr_vecs = self.triplet_context_net(triplet_context_input) 
+
 
     H, W = self.image_size
     layout_boxes = boxes_pred if boxes_gt is None else boxes_gt
@@ -473,7 +531,7 @@ class Sg2ImModel(nn.Module):
       triplet_boxes_gt = None
     
     #return img, boxes_pred, masks_pred, rel_scores
-    return img, boxes_pred, masks_pred, objs, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, rel_scores, obj_vecs, pred_vecs, triplet_boxes_pred, triplet_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores, context_tr_vecs, input_tr_vecs, obj_class_scores, rel_class_scores, rel_embedding  #, mapc_bind
+    return img, boxes_pred, masks_pred, objs, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, rel_scores, obj_vecs, pred_vecs, triplet_boxes_pred, triplet_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores, context_tr_vecs, input_tr_vecs, obj_class_scores, rel_class_scores, subj_scores, rel_embedding, mask_rel_embedding, pred_ground #, mapc_bind
 
 
   def encode_scene_graphs(self, scene_graphs):

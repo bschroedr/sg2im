@@ -82,6 +82,8 @@ class VgSceneGraphDataset(Dataset):
     """
     img_path = os.path.join(self.image_dir, self.image_paths[index])
 
+    import pdb 
+
     if self.seed != 0:
       random.seed(self.seed)
       self.seed += 1
