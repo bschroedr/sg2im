@@ -17,10 +17,9 @@
 import argparse, json, os
 from collections import Counter, defaultdict
 
+import pdb
 import numpy as np
 import h5py
-#from scipy.misc import imread, imresize
-
 
 """
 vocab for objects contains a special entry "__image__" intended to be used for
@@ -29,25 +28,25 @@ special entry "__in_image__" to be used for dummy relationships making the graph
 fully-connected.
 """
 
-
-VG_DIR = 'datasets/vg'
-
+VG_DIR = '/Users/brigit/datasets/vg'
 parser = argparse.ArgumentParser()
-
 # Input data
+parser.add_argument('--vg_dir', default=VG_DIR)
+parser.add_argument('--use_split', default=None, choices=[None,'train', 'val', 'test'])
 parser.add_argument('--splits_json', default='sg2im/data/vg_splits.json')
-parser.add_argument('--images_json',
-    default=os.path.join(VG_DIR, 'image_data.json'))
-parser.add_argument('--objects_json',
-    default=os.path.join(VG_DIR, 'objects.json'))
-parser.add_argument('--attributes_json',
-    default=os.path.join(VG_DIR, 'attributes.json'))
-parser.add_argument('--object_aliases',
-    default=os.path.join(VG_DIR, 'object_alias.txt'))
-parser.add_argument('--relationship_aliases',
-    default=os.path.join(VG_DIR, 'relationship_alias.txt'))
-parser.add_argument('--relationships_json',
-    default=os.path.join(VG_DIR, 'relationships.json'))
+
+#parser.add_argument('--images_json',
+#    default=os.path.join(VG_DIR, 'image_data.json'))
+#parser.add_argument('--objects_json',
+#    default=os.path.join(VG_DIR, 'objects.json'))
+#parser.add_argument('--attributes_json',
+#    default=os.path.join(VG_DIR, 'attributes.json'))
+#parser.add_argument('--object_aliases',
+#    default=os.path.join(VG_DIR, 'object_alias.txt'))
+#parser.add_argument('--relationship_aliases',
+#    default=os.path.join(VG_DIR, 'relationship_alias.txt'))
+#parser.add_argument('--relationships_json',
+#    default=os.path.join(VG_DIR, 'relationships.json'))
 
 # Arguments for images
 parser.add_argument('--min_image_size', default=200, type=int)
@@ -120,21 +119,32 @@ def main(args):
 
   print('Writing HDF5 output files')
   for split_name, split_arrays in numpy_arrays.items():
+    if args.use_split is not None and split_name != args.use_split:
+      print('Skipping ', split_name, 'split')
+      continue
     image_ids = list(split_arrays['image_ids'].astype(int))
     h5_path = os.path.join(args.output_h5_dir, '%s.h5' % split_name)
     print('Writing file "%s"' % h5_path)
     with h5py.File(h5_path, 'w') as h5_file:
       for name, ary in split_arrays.items():
-        print('Creating datset: ', name, ary.shape, ary.dtype)
+        print('Creating dataset: ', name, ary.shape, ary.dtype)
         h5_file.create_dataset(name, data=ary)
       print('Writing image paths')
-      image_paths = get_image_paths(image_id_to_image, image_ids)
+      #image_paths, image_urls = get_image_paths(image_id_to_image, image_ids)
+      image_paths, image_urls, height, width = get_image_data(image_id_to_image, image_ids)
       path_dtype = h5py.special_dtype(vlen=str)
       path_shape = (len(image_paths),)
       path_dset = h5_file.create_dataset('image_paths', path_shape,
                                          dtype=path_dtype)
       for i, p in enumerate(image_paths):
         path_dset[i] = p
+      url_dset = h5_file.create_dataset('image_urls', path_shape,
+                                         dtype=path_dtype)
+      for i, u in enumerate(image_urls):
+        url_dset[i] = u
+      # add in metadata string as a sanity check
+      h5_file.create_dataset('height', data=height)
+      h5_file.create_dataset('width', data=width)
     print()
 
   print('Writing vocab to "%s"' % args.output_vocab_json)
@@ -160,14 +170,25 @@ def remove_small_images(args, image_id_to_image, splits):
   return new_splits
 
 
-def get_image_paths(image_id_to_image, image_ids):
+#def get_image_paths(image_id_to_image, image_ids):
+def get_image_data(image_id_to_image, image_ids):
   paths = []
+  urls = []
+  img_data = []
+  width = []
+  height = []
   for image_id in image_ids:
     image = image_id_to_image[image_id]
+    h = image['height']
+    w = image['width']
     base, filename = os.path.split(image['url'])
     path = os.path.join(os.path.basename(base), filename)
     paths.append(path)
-  return paths
+    urls.append(image['url'])
+    img_data.append(image)
+    width.append(w)
+    height.append(h)
+  return paths, urls, np.asarray(height), np.asarray(width) 
 
 
 def handle_images(args, image_ids, h5_file):
@@ -515,4 +536,11 @@ def encode_graphs(args, splits, objects, relationships, vocab,
 
 if __name__ == '__main__':
   args = parser.parse_args()
+  # dataset files
+  args.images_json = os.path.join(args.vg_dir, 'image_data.json')
+  args.objects_json = os.path.join(args.vg_dir, 'objects.json')
+  args.attributes_json = os.path.join(args.vg_dir, 'attributes.json')
+  args.object_aliases = os.path.join(args.vg_dir, 'object_alias.txt')
+  args.relationship_aliases = os.path.join(args.vg_dir, 'relationship_alias.txt')
+  args.relationships_json = os.path.join(args.vg_dir, 'relationships.json')
   main(args)
