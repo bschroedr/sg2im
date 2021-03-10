@@ -723,14 +723,9 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
 def calculate_recall(results, count):
   num_elem = len(results)
   all_r = [] 
-  ##all_r = np.full(num_elem, 1).tolist() 
   for i in range(0,num_elem):
-    ## JJ
-    ##if results[i] == 1:
-    ##  break
-    ##else: 
-    ##  all_r[i] = 0
-    r = sum(results[:i+1])/count # this is not the most efficient way to do this!
+    r = sum(results[:i+1])/count # normal results 
+    #r = min(i+1,count)/count # ideal results
     all_r += [r]
   return np.array(all_r)
 
@@ -948,7 +943,6 @@ def analyze_embedding_retrieval(db):
       query_img_id = img_ids[i]
       dist = euclid_dist(np.asarray(query), np.asarray(tmp_embeds))
       index = dist.argsort(axis=0) # indices of sorted list
-      print('distance: ', dist[index[0:topK]]) # distance of the top10 sorted queries
 
       # find matching img ids to remove query img from ranked results
       id_idx = np.where(np.array(img_ids) == query_img_id)
@@ -971,7 +965,7 @@ def analyze_embedding_retrieval(db):
       # calculate recall
       if(find_recall):
         # Random result
-        #index = np.random.permutation(index) # randomize sorted index
+        index = np.random.permutation(index) # randomize sorted index
         results = k[index[0:topK_recall]]
         qq = np.matlib.repmat(query_str,topK_recall,1).squeeze()
         rr = (results == qq).astype(int)
