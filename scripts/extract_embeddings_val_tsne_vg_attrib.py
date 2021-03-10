@@ -965,7 +965,7 @@ def analyze_embedding_retrieval(db):
       # calculate recall
       if(find_recall):
         # Random result
-        index = np.random.permutation(index) # randomize sorted index
+        #index = np.random.permutation(index) # randomize sorted index
         results = k[index[0:topK_recall]]
         qq = np.matlib.repmat(query_str,topK_recall,1).squeeze()
         rr = (results == qq).astype(int)
