@@ -147,8 +147,6 @@ def parse_args():
   parser.add_argument('--masks_to_triplet_pixels', default=False, type=int)
   # used masked SG loss
   parser.add_argument('--use_masked_sg', default=False, type=int)
-  # freeze relationship embedding
-  parser.add_argument('--freeze_rel_embedding', default=False, type=int)
 
   # Generator options
   parser.add_argument('--mask_size', default=16, type=int) # Set this to 0 to use no masks
@@ -736,8 +734,8 @@ def calculate_model_losses(args, skip_pixel_loss, model, img, img_pred,
     total_loss = add_loss(total_loss, loss_rel_embed, losses, 'rel_embed_SCL',
                           args.rel_embed_loss_weight)
 
-  # freeze relationship embedding and train classifier
-  if args.rel_class_loss_weight > 0 and args.freeze_rel_embedding:
+  # predicate relationship classification scores 
+  if args.rel_class_loss_weight > 0:
     loss_rel = F.cross_entropy(rel_class_scores, predicates2)
     #loss_rel = FocalLoss(gamma=2.0, alpha=0.75)(rel_class_scores, predicates2)
     #p = (-loss_rel).exp()

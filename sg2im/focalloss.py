@@ -15,7 +15,7 @@ class FocalLoss(nn.Module):
         super(FocalLoss, self).__init__()
         self.gamma = gamma
         self.alpha = alpha
-        if isinstance(alpha, (float, int)): self.alpha = torch.Tensor([alpha, 1 - alpha])
+        #if isinstance(alpha, (float, int)): self.alpha = torch.Tensor([alpha, 1 - alpha])
         if isinstance(alpha, list): self.alpha = torch.Tensor(alpha)
         self.size_average = size_average
 
@@ -32,10 +32,11 @@ class FocalLoss(nn.Module):
         pt = logpt.exp()
 
         if self.alpha is not None:
-            if self.alpha.type() != input.data.type():
-                self.alpha = self.alpha.type_as(input.data)
-            at = self.alpha.gather(0, target.data.view(-1))
-            logpt = logpt * at
+            #if self.alpha.type() != input.data.type():
+            #    self.alpha = self.alpha.type_as(input.data)
+            #at = self.alpha.gather(0, target.data.view(-1))
+            #logpt = logpt * at
+            logpt = logpt * self.alpha 
 
         loss = -1 * (1 - pt)**self.gamma * logpt
         if self.size_average: return loss.mean()

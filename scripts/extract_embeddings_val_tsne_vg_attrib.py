@@ -815,8 +815,8 @@ def analyze_embedding_retrieval(db):
     # iterate over list of triplets
     for t in range(0, len(db[k])):
       # report results using this 
-      embeds += [db[k][t]['embed']] # concatenated embeddings! <s,p,o>
-      #embeds += [db[k][t]['input_embed']] # concatenated embeddings! <s,p,o>
+      ####embeds += [db[k][t]['embed']] # concatenated embeddings! <s,p,o>
+      embeds += [db[k][t]['input_embed']] # concatenated embeddings! <s,p,o>
       #embeds += [db[k][t]['context_embed']] # concatenated embeddings! <s,p,o>
       # VSA
       #embeds += [db[k][t]['mapc_embed']]
@@ -984,6 +984,7 @@ def analyze_embedding_retrieval(db):
         if not args.visualize_retrieval: 
           continue
 
+      #  skip query that doesn't have at least 1 retrieval result 
       if(triplet_count < min_triplet_count): 
         print('skipping ', query_str)
         continue

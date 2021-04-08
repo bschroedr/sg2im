@@ -429,7 +429,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
         model_out = model(objs, triples, obj_to_img, boxes_gt=boxes, masks_gt=model_masks, tr_to_img=triple_to_img)
         ####model_out = model(objs, triples, obj_to_img, boxes_gt=boxes, masks_gt=model_masks,)
         #imgs_pred, boxes_pred, masks_pred, predicate_scores = model_out
-        imgs_pred, boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores, obj_embeddings, pred_embeddings, triple_boxes_pred, triple_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores, context_tr_vecs = model_out # , mapc_bind = model_out
+        imgs_pred, boxes_pred, masks_pred, objs_vec, layout, layout_boxes, layout_masks, obj_to_img, sg_context_pred, sg_context_pred_d, predicate_scores, obj_embeddings, pred_embeddings, triple_boxes_pred, triple_boxes_gt, triplet_masks_pred, boxes_pred_info, triplet_superboxes_pred, obj_scores, pred_mask_gt, pred_mask_scores, context_tr_vecs, input_tr_vecs, obj_class_scores, rel_class_scores, subj_scores, rel_embedding, mask_rel_embedding, pred_ground = model_out # , mapc_bind = model_out
         # Run model without GT boxes to get predicted layout masks
         #model_out = model(objs, triples, obj_to_img)
         #layout_boxes, layout_masks = model_out[5], model_out[6]
@@ -693,13 +693,10 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
 # calculate recall
 def calculate_recall(results, count):
   num_elem = len(results)
-  all_r = np.full(num_elem, 1).tolist() 
+  all_r = [] 
   for i in range(0,num_elem):
-    #if results[i] == 1:
-    #  break
-    #else: 
-    #  all_r[i] = 0
-    r = sum(results[:i+1])/count # this is not the most efficient way to do this!
+    r = sum(results[:i+1])/count 
+    #r = min(i+1,count)/count # ideal results
     all_r += [r]
   return np.array(all_r)
 
@@ -969,6 +966,7 @@ def analyze_embedding_retrieval(db):
       if(triplet_count < min_triplet_count): 
         print('skipping ', query_str)
         continue
+
       # visualize query and topK images
       count = 1
       fig = plt.figure(figsize=(12,5))

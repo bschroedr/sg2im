@@ -560,7 +560,8 @@ def overlay_boxes(imgs, vocab, objs, layout_boxes_t, obj_to_img, W=64, H=64, dra
 
 
   # Z = (imgs[0].numpy().transpose(1, 2, 0) * 255.0)
-  Z1 = imgs[0] * 255.0
+  #Z1 = imgs[0] * 255.0
+  Z1 = imgs * 255.0
  
   if torch.is_tensor(Z1):
     Z = Z1.numpy()
@@ -576,6 +577,8 @@ def overlay_boxes(imgs, vocab, objs, layout_boxes_t, obj_to_img, W=64, H=64, dra
   else:  
     layout_boxes = layout_boxes_t.copy()
 
+  # expand dimension to [:,4]
+  layout_boxes = np.expand_dims(layout_boxes, axis=0)
   layout_boxes[:,0] *= W
   layout_boxes[:,2] *= W
   layout_boxes[:,1] *= H
@@ -622,7 +625,7 @@ def overlay_boxes(imgs, vocab, objs, layout_boxes_t, obj_to_img, W=64, H=64, dra
 
     if(drawSuperbox):
       c_outline = 'black' 
-      drawrect(draw, [(boxes[j][0], boxes[j][1]), (boxes[j][2], boxes[j][3])], outline=c_outline, width=2)
+      drawrect(draw, [(boxes[j][0], boxes[j][1]), (boxes[j][2], boxes[j][3])], outline=c_outline, width=1)
     else:        
       c_outline = colors[p%n_cols]
       drawrect(draw, [(boxes[j][0], boxes[j][1]), (boxes[j][2], boxes[j][3])], outline=c_outline, width=1)

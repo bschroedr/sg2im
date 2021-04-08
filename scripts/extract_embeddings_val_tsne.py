@@ -522,10 +522,10 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             subj_embed = obj_embeddings[subj_index].cpu().numpy().tolist()
             pred_embed = pred_embeddings[n].cpu().numpy().tolist()
             obj_embed = obj_embeddings[obj_index].cpu().numpy().tolist()
-            #pooled_embed = (obj_embeddings[subj_index].cpu().numpy() + pred_embeddings[n].cpu().numpy() + obj_embeddings[obj_index].cpu().numpy())/3
             aa = obj_embeddings[subj_index].cpu().numpy().squeeze()
             bb = pred_embeddings[n].cpu().numpy() 
             cc = obj_embeddings[obj_index].cpu().numpy().squeeze()
+            # concatenated s/p/o
             pooled_embed = np.concatenate((aa, bb, cc)).tolist()
 
             relationship = dict()
@@ -697,23 +697,17 @@ def analyze_embedding_retrieval(db):
   for k in sort_triplets_by_count:
     tr = db_utils.string_to_tuple(k)
     subj = tr[0]
-    #if subj != 'table':
-    #if subj != 'person':
-    #if subj != 'horse':
-    #if subj != 'fork':
-    #if subj != 'furniture-other':
-    #  continue
 
     # iterate over list of triplets
     for t in range(0, len(db[k])):
-      # report results using this # embeds += [db[k][t]['embed']] # concatenated embeddings! <s,p,o>
+      embeds += [db[k][t]['embed']] # concatenated embeddings! <s,p,o>
       #embeds += db[k][t]['subject_embed'] # good result when subject is fixed - context? interesting analysis to be done here!  
-      #embeds += db[k][t]['object_embed']  ### this is best
+      #embeds += db[k][t]['object_embed']  
       #embeds += [ db[k][t]['predicate_embed'] ] # too many 0s in topK distances 
       # NOTE: this is hacky programming and should be fixed!
       #embeds += [np.concatenate((db[k][t]['predicate_embed'], db[k][t]['object_embed'][0])).tolist()] # works well!! 
       # baseline?
-      embeds += [np.concatenate((db[k][t]['subject_embed'][0], db[k][t]['object_embed'][0])).tolist()] # works well!! 
+      #embeds += [np.concatenate((db[k][t]['subject_embed'][0], db[k][t]['object_embed'][0])).tolist()] # works well!! 
 
       # image patch
       #imgs += [ db[k][t]['image'] ]
