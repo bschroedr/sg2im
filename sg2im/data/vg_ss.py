@@ -151,7 +151,10 @@ class VgSceneGraphDataset(Dataset):
       boxes[i] = torch.FloatTensor([x0, y0, x1, y1])
       obj_idx_mapping[obj_idx] = i
       # set size index and attribute for object
-      size_index = round((self.size_attribute_len - 1) * (w * h) / (WW * HH)) 
+      scale = (w * h) / (WW * HH)
+      # some annotations go out of bounds in VG
+      scale = min(scale, 1.0)
+      size_index = round((self.size_attribute_len - 1) * scale) 
       size_attribute[i, size_index] = 1.0
 
     # The last object will be the special __image__ object
@@ -167,6 +170,9 @@ class VgSceneGraphDataset(Dataset):
       x0, y0, x1, y1 = boxes[i]
       mean_x = 0.5 * (x0 + x1)
       mean_y = 0.5 * (y0 + y1)
+      # some annotations go out of bounds in VG
+      mean_x = torch.min(mean_x, torch.tensor(1.0))
+      mean_y = torch.min(mean_y, torch.tensor(1.0))
       location_index = round(mean_x.item() * (l_root - 1)) + l_root * round(mean_y.item() * (l_root - 1))
       location_attribute[i, int(location_index)] = 1.0 
 
