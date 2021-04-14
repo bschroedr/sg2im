@@ -128,11 +128,12 @@ class VgSceneGraphDataset(Dataset):
     attrs = torch.LongTensor(O, self.data['object_attributes'][index, 0].size(0) ).fill_(-1) 
     num_attrs = torch.LongTensor(O).fill_(-1) 
     # size and location attributes
-    add_img = 0 if self.no__img__ else 1
-    size_attribute = torch.zeros([len(self.image_id_to_objects[image_id]) + add_img, self.size_attribute_len],
+    #add_img = 0 if self.no__img__ else 1
+    add_img = 0
+    size_attribute = torch.zeros([O + add_img, self.size_attribute_len],
                                      dtype=torch.float)
     location_attribute = torch.zeros(
-            [len(self.image_id_to_objects[image_id]) + add_img, self.location_attribute_len], dtype=torch.float)
+            [O + add_img, self.location_attribute_len], dtype=torch.float)
 
     boxes = torch.FloatTensor([[0, 0, 1, 1]]).repeat(O, 1)
     obj_idx_mapping = {}
@@ -161,6 +162,7 @@ class VgSceneGraphDataset(Dataset):
     size_attribute[-1, self.size_attribute_len - 1] = 1.0 # 100% scale
 
     # compute location attribute for each object
+    l_root = self.location_attribute_len ** (.5)
     for i, obj_idx in enumerate(objs):
       x0, y0, x1, y1 = boxes[i]
       mean_x = 0.5 * (x0 + x1)
