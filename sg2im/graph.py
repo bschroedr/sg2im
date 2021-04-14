@@ -33,7 +33,7 @@ class GraphTripleConv(nn.Module):
   """
   A single layer of scene graph convolution.
   """
-  def __init__(self, input_dim, output_dim=None, hidden_dim=512,
+  def __init__(self, input_dim, spatial_attributes_dim=0, output_dim=None, hidden_dim=512,
                pooling='avg', mlp_normalization='none'):
     super(GraphTripleConv, self).__init__()
     if output_dim is None:
@@ -44,7 +44,7 @@ class GraphTripleConv(nn.Module):
     
     assert pooling in ['sum', 'avg'], 'Invalid pooling "%s"' % pooling
     self.pooling = pooling
-    net1_layers = [3 * input_dim, hidden_dim, 2 * hidden_dim + output_dim]
+    net1_layers = [3 * input_dim + 2 * spatial_attributes_dim, hidden_dim, 2 * hidden_dim + output_dim]
     net1_layers = [l for l in net1_layers if l is not None]
     self.net1 = build_mlp(net1_layers, batch_norm=mlp_normalization)
     self.net1.apply(_init_weights)
