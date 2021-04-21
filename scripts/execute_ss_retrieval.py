@@ -54,7 +54,7 @@ def generate_db(args, loader, vocab, model):
       if torch.cuda.is_available():
         #batch = [tensor.cuda() for tensor in batch]
         b = []
-        # accounnt for elements returned by batch loader are not cuda-compatible (e.g. list) (vg_eval.py)
+        # accounnt for elements returned by batch loader are not cuda-compatible (e.g. list) (v''g_eval.py)
         for tensor in batch:
           if isinstance(tensor, list):
             b.append(tensor)
@@ -80,10 +80,6 @@ def generate_db(args, loader, vocab, model):
         break
 
       for i in range(0, args.batch_size): 
-        objs_index = np.where(obj_to_img.cpu().numpy() == i) # objects indices for image in batch
-        objs_img = objs[objs_index] # object class ids for image
-        #obj_names = np.array(vocab['object_idx_to_name'])[objs_img] # object class labels 
-        obj_boxes = boxes[objs_index] 
         img_url = '' 
         #img_url = urls[i]
         # temporary
@@ -111,11 +107,18 @@ def generate_db(args, loader, vocab, model):
             continue
           rel_id = 0 
           #rel_id = rel_ids[n].item()
+          
           subj_box = boxes[subj_index][0].tolist()
           obj_box = boxes[obj_index][0].tolist()
+
+          subj_embed = obj_embeddings[subj_index].cpu().numpy() #.tolist()
+          pred_embed = pred_embeddings[n].cpu().numpy() #.tolist()
+          obj_embed = obj_embeds_img[obj_index].cpu().numpy() #.tolist()
+          pooled_embed = np.mean([subj_embed,pred_embed,obj_embed], axis=0)
+          
           relationship = {}
           relationship['metadata'] = {'image_url': img_url, 'vg_scene_id': img_id, 'vg_relationship_id': rel_id}
-          relationship['data'] = {'s_box': subj_box, 'o_box': obj_box, 'subject': subj, 'predicate': pred, 'object': obj}
+          relationship['data'] = {'s_box': subj_box, 'o_box': obj_box, 'subject': subj, 'predicate': pred, 'object': obj, 'embed': pooled_embed}
           db.append(relationship)
           pprint.pprint(relationship)
           # keep track of which relationship and image belong to each db entry
@@ -142,9 +145,9 @@ def generate_queries(args, db, image_id_to_entries, num_queries=1000):
   #  entries_to_delete += image_id_to_entries[i]
 
   # delete queries from db
-  for e in entries_to_delete:
-    db[e] = ['void']
-  db = [x for x in db if x != ['void']]
+  #for e in entries_to_delete:
+  #  db[e] = ['void']
+  #db = [x for x in db if x != ['void']]
 
   return db, queries
 
