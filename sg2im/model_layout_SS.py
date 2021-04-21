@@ -44,6 +44,7 @@ class Sg2ImModel(nn.Module):
                use_bbox_info=False,
                triplet_superbox_net=False,
                use_masked_sg=False,
+               sp_attributes_dim=35,
                **kwargs):
     super(Sg2ImModel, self).__init__()
 
@@ -67,7 +68,8 @@ class Sg2ImModel(nn.Module):
     # hack to deal with vocabs with differing # of predicates
     self.mask_pred = 46 # vocab['idx_to_pred_name'][46] = 'none'
     #self.mask_pred = vocab['pred_name_to_idx']['none']
-    self.embedding_dim = embedding_dim 
+    self.embedding_dim = embedding_dim
+    self.sp_attributes_dim = sp_attributes_dim 
   
     num_objs = len(vocab['object_idx_to_name'])
     num_preds = len(vocab['pred_idx_to_name'])
@@ -82,11 +84,11 @@ class Sg2ImModel(nn.Module):
     self.fr_pred_embeddings.requires_grad = False
 
     if gconv_num_layers == 0:
-      self.gconv = nn.Linear(embedding_dim + 25, gconv_dim)
+      self.gconv = nn.Linear(embedding_dim, gconv_dim)
     elif gconv_num_layers > 0:
       gconv_kwargs = {
         'input_dim': embedding_dim,
-        'sp_attributes_dim': attributes_dim,
+        'spatial_attributes_dim': sp_attributes_dim,
         'output_dim': gconv_dim,
         'hidden_dim': gconv_hidden_dim,
         'pooling': gconv_pooling,
@@ -278,48 +280,16 @@ class Sg2ImModel(nn.Module):
     else:
       obj_vecs_attr = obj_vecs
 
+    # pass embedding vectors through 1 layer of gconv
     if isinstance(self.gconv, nn.Linear):
       obj_vecs = self.gconv(obj_vecs_attr)
     else:
       obj_vecs, pred_vecs = self.gconv(obj_vecs_attr, pred_vecs, edges)
+    # pass embedding vectors to GCN
     if self.gconv_net is not None:
-      obj_vecs, pred_vecs = self.gconv_net(obj_vecs_attr, pred_vecs, edges)
+      obj_vecs, pred_vecs = self.gconv_net(obj_vecs, pred_vecs, edges)
 
-    #### object context vectors ###############
-    num_imgs = obj_to_img[obj_to_img.size(0)-1] + 1
-    context_obj_vecs = torch.zeros(num_imgs, obj_vecs.size(1), dtype=obj_vecs.dtype, device=obj_vecs.device)
-    obj_to_img_exp = obj_to_img.view(-1, 1).expand_as(obj_vecs)
-    context_obj_vecs = context_obj_vecs.scatter_add(0, obj_to_img_exp, obj_vecs)
-   
-    # get object counts
-    obj_counts = torch.zeros(num_imgs, dtype=obj_vecs.dtype, device=obj_vecs.device)
-    ones = torch.ones(obj_to_img.size(0), dtype=obj_vecs.dtype, device=obj_vecs.device)
-    obj_counts = obj_counts.scatter_add(0, obj_to_img, ones)
-    context_obj_vecs = context_obj_vecs / obj_counts.view(-1, 1) 
-    context_obj_vecs = context_obj_vecs[obj_to_img]
-    context_obj_vecs = context_obj_vecs[s]
-    ####################################
-
-    ####### triplet context vectors ########### 
-    #context_tr_vecs = None
-    # concatenate triplet vectors
-    #triplets = torch.cat([obj_vecs[s], pred_vecs, obj_vecs[o]], dim=1)
-    #context_tr_vecs = torch.zeros(num_imgs, triplets.size(1), dtype=obj_vecs.dtype, device=obj_vecs.device)
-    # need triplet to image
-    #tr_to_img_exp = tr_to_img.view(-1, 1).expand_as(triplets)
-    #context_tr_vecs = context_tr_vecs.scatter_add(0, tr_to_img_exp, triplets)
-    # get triplet counts
-    #tr_counts = torch.zeros(num_imgs, dtype=obj_vecs.dtype, device=obj_vecs.device)
-    #ones = torch.ones(triplets.size(0), dtype=obj_vecs.dtype, device=obj_vecs.device)
-    #tr_counts = tr_counts.scatter_add(0, tr_to_img, ones)
-    #context_tr_vecs = context_tr_vecs/tr_counts.view(-1,1)
-    # dimension is (# triplets, 3*input_dim)
-    #context_tr_vecs = context_tr_vecs[tr_to_img]
-    # get some context! 
-    #context_tr_vecs = self.triplet_context_net(context_tr_vecs)
-    ###########################################
-
-    ####  mask out some predicates #####
+    ####  masked scene graph predicates #####
     pred_mask_gt = None
     pred_mask_scores = None
     if self.use_masked_sg:
@@ -482,11 +452,8 @@ class Sg2ImModel(nn.Module):
       # predict 2 point pred grounding
       pred_ground = self.pred_ground_net(pred_vecs) # s/p/o (bboxes?) 
 
-    # triplet context
-    triplet_context_input = torch.cat([context_obj_vecs, s_vecs_pred, pred_vecs, o_vecs_pred], dim=1)
-    # output dimension is 384
-    context_tr_vecs = self.triplet_context_net(triplet_context_input) 
-
+    # deprecated
+    context_tr_vecs = None
 
     H, W = self.image_size
     layout_boxes = boxes_pred if boxes_gt is None else boxes_gt

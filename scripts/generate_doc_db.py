@@ -43,15 +43,15 @@ def generate_db(args, loader, vocab):
   e = 0
   img_count = 0
   db = [] 
-  # define named tuple 
-  #TripleData = namedtuple("TripleData", ["relationship_id", "image_id"]) 
   # iterate over all batches of images
   with torch.no_grad():
     for batch in loader:
-      if torch.cuda.is_available():
-        batch = [tensor.cuda() for tensor in batch]
-      else:
-        batch = [tensor for tensor in batch]
+      # tensor.cuda() can't handle strings (e.g. img URLS) 
+      #if torch.cuda.is_available():
+      #  batch = [tensor.cuda() for tensor in batch]
+      #else:
+      #  batch = [tensor for tensor in batch]
+      batch = [tensor for tensor in batch]
      
       print('Batch loading data')
 
@@ -181,6 +181,6 @@ def main(args):
 if __name__ == '__main__':
   args = parser.parse_args()
   # where VG data is located
-  args.val_h5 = os.path.join(VG_DIR, args.use_split + '.h5')
-  args.vocab_json = os.path.join(VG_DIR, 'vocab.json')
+  args.val_h5 = os.path.join(args.vg_dir, args.use_split + '.h5')
+  args.vocab_json = os.path.join(args.vg_dir, 'vocab.json')
   main(args)
