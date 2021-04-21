@@ -137,10 +137,10 @@ class VgSceneGraphDataset(Dataset):
       attrs[i] = self.data['object_attributes'][index, obj_idx] 
       num_attrs[i] = self.data['attributes_per_object'][index, obj_idx].item()
       x, y, w, h = self.data['object_boxes'][index, obj_idx].tolist()
-      x0 = float(x) / WW.double()
-      y0 = float(y) / HH.double()
-      x1 = float(x + w) / WW.double()
-      y1 = float(y + h) / HH.double()
+      x0 = float(x) / float(WW)
+      y0 = float(y) / float(HH)
+      x1 = float(x + w) / float(WW)
+      y1 = float(y + h) / float(HH)
       boxes[i] = torch.FloatTensor([x0, y0, x1, y1])
       obj_idx_mapping[obj_idx] = i
 
