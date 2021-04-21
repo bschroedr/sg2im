@@ -1,3 +1,3 @@
 bash scripts/download_vg.sh --no-image --vg_dir /Users/brigit/vg
 python scripts/preprocess_vg.py --vg_dir /Users/brigit/vg --use_split 'val'
-python ./scripts/generate_doc_db.py
+python ./scripts/generate_doc_db.py --vg_dir /Users/brigit/vg
