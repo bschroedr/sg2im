@@ -543,4 +543,6 @@ if __name__ == '__main__':
   args.object_aliases = os.path.join(args.vg_dir, 'object_alias.txt')
   args.relationship_aliases = os.path.join(args.vg_dir, 'relationship_alias.txt')
   args.relationships_json = os.path.join(args.vg_dir, 'relationships.json')
+  args.output_vocab_json = os.path.join(args.vg_dir, 'vocab.json')
+  args.output_h5_dir = args.vg_dir
   main(args)
