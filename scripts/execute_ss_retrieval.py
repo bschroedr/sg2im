@@ -113,27 +113,25 @@ def generate_db(args, loader, vocab, model):
 
           subj_embed = obj_embeddings[subj_index].cpu().numpy() #.tolist()
           pred_embed = pred_embeddings[n].cpu().numpy() #.tolist()
-          obj_embed = obj_embeds_img[obj_index].cpu().numpy() #.tolist()
-          pooled_embed = np.mean([subj_embed,pred_embed,obj_embed], axis=0)
+          obj_embed = obj_embeddings[obj_index].cpu().numpy() #.tolist()
+          pooled_embed = np.mean([subj_embed,pred_embed,obj_embed], axis=0).tolist()
           
           relationship = {}
           relationship['metadata'] = {'image_url': img_url, 'vg_scene_id': img_id, 'vg_relationship_id': rel_id}
           relationship['data'] = {'s_box': subj_box, 'o_box': obj_box, 'subject': subj, 'predicate': pred, 'object': obj, 'embed': pooled_embed}
           db.append(relationship)
-          pprint.pprint(relationship)
+          #pprint.pprint(relationship)
           # keep track of which relationship and image belong to each db entry
-          #triple_data_to_entry[TripleData(relationship_id=rel_id, image_id=img_id)] = e
-          #image_id_to_entries[img_id].update({e})
           if img_id not in image_id_to_entries:
             image_id_to_entries[img_id] = [e]
           elif img_id in image_id_to_entries:
             image_id_to_entries[img_id] += [e]
           e += 1
-
+          print('--- image {0} ---'.format(img_id))
+  print('Database has', len(db), ' visual relationships.')
   return db, image_id_to_entries
 
 def generate_queries(args, db, image_id_to_entries, num_queries=1000):
-  print('Database has ', len(db), ' documents.')
   queries = [] 
   #num_entries = len(db)
   # need to associate with number of queries
@@ -203,10 +201,6 @@ def main(args):
   map_location = 'cpu' if device == torch.device('cpu') else None
   assert os.path.isfile(args.checkpoint)
   checkpoint = torch.load(args.checkpoint, map_location=map_location)
-  # for flags added after model trained.
-  #checkpoint['model_kwargs']['triplet_box_net'] = args.triplet_box_net
-  #checkpoint['model_kwargs']['triplet_mask_size'] = args.triplet_mask_size
-  #checkpoint['model_kwargs']['triplet_embedding_size'] = args.triplet_embedding_size
   model = Sg2ImModel(**checkpoint['model_kwargs'])
   model.load_state_dict(checkpoint['model_state'], strict=False)
   model.eval()
@@ -221,9 +215,10 @@ def main(args):
   # write documents and queries
   with open('docs.json', 'w') as json_file:
     json.dump(db, json_file)
-  with open('queries.json', 'w') as json_file:
-    json.dump(queries, json_file)
-  pprint.pprint(queries)
+  #with open('queries.json', 'w') as json_file:
+  #  json.dump(queries, json_file)
+  #pprint.pprint(queries)
+  print('The End')
   
 if __name__ == '__main__':
   args = parser.parse_args()
