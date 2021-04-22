@@ -13,7 +13,8 @@ import torch
 from torch.utils.data import DataLoader
 import torchvision.models as models
 from sg2im.data.vg_ss import VgSceneGraphDataset, vg_collate_fn
-from sg2im.model_layout_SS import Sg2ImModel
+#from sg2im.model_layout_SS import Sg2ImModel
+import importlib.util
 import pdb
 
 VG_DIR = '/home/brigit/sandbox/sg2im/datasets/vg'
@@ -35,11 +36,12 @@ parser.add_argument('--num_val_samples', default=1024, type=int)
 parser.add_argument('--max_objects_per_image', default=10, type=int)
 parser.add_argument('--vg_use_orphaned_objects', default=True, type=bool)
 parser.add_argument('--random_seed', default=42, type=int)
-parser.add_argument('--no_images', default=False, type=bool)
+#parser.add_argument('--no_images', default=False, type=bool)
 
 # Model options
 parser.add_argument('--checkpoint', default='sg2im-models/coco64.pt')
 parser.add_argument('--device', default='gpu', choices=['cpu', 'gpu'])
+parser.add_argument('--model_module', default='model_layout_SS')
 
 def generate_db(args, loader, vocab, model):
   num_samples = 0 
@@ -54,7 +56,7 @@ def generate_db(args, loader, vocab, model):
       if torch.cuda.is_available():
         #batch = [tensor.cuda() for tensor in batch]
         b = []
-        # accounnt for elements returned by batch loader are not cuda-compatible (e.g. list) (v''g_eval.py)
+        # accounnt for elements returned by batch loader are not cuda-compatible (e.g. list) (vg_eval.py)
         for tensor in batch:
           if isinstance(tensor, list):
             b.append(tensor)
@@ -189,6 +191,13 @@ def build_loaders(args):
   return vocab, val_loader
 
 def main(args):
+ 
+  # import custom model
+  module_file = os.path.join("./sg2im/", args.model_module + ".py") 
+  spec = importlib.util.spec_from_file_location(args.model_module, module_file)
+  #spec = importlib.util.spec_from_file_location("model_layout_SS", "./sg2im/model_layout_SS.py")
+  sg2im_module = importlib.util.module_from_spec(spec)
+  spec.loader.exec_module(sg2im_module)
 
   if args.device == 'cpu':
     device = torch.device('cpu')
@@ -201,7 +210,7 @@ def main(args):
   map_location = 'cpu' if device == torch.device('cpu') else None
   assert os.path.isfile(args.checkpoint)
   checkpoint = torch.load(args.checkpoint, map_location=map_location)
-  model = Sg2ImModel(**checkpoint['model_kwargs'])
+  model = sg2im_module.Sg2ImModel(**checkpoint['model_kwargs'])
   model.load_state_dict(checkpoint['model_state'], strict=False)
   model.eval()
   model.to(device)
