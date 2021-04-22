@@ -41,7 +41,7 @@ parser.add_argument('--random_seed', default=42, type=int)
 # Model options
 parser.add_argument('--checkpoint', default='sg2im-models/coco64.pt')
 parser.add_argument('--device', default='gpu', choices=['cpu', 'gpu'])
-parser.add_argument('--model_module', default='model_layout_SS')
+parser.add_argument('--model_module', default='sg2im.model_layout_SS')
 
 def generate_db(args, loader, vocab, model):
   num_samples = 0 
@@ -191,14 +191,10 @@ def build_loaders(args):
   return vocab, val_loader
 
 def main(args):
- 
-  # import custom model
-  module_file = os.path.join("./sg2im/", args.model_module + ".py") 
-  spec = importlib.util.spec_from_file_location(args.model_module, module_file)
-  #spec = importlib.util.spec_from_file_location("model_layout_SS", "./sg2im/model_layout_SS.py")
-  sg2im_module = importlib.util.module_from_spec(spec)
-  spec.loader.exec_module(sg2im_module)
 
+  # import custom model
+  sg2im_module = importlib.import_module(args.model_module)
+  
   if args.device == 'cpu':
     device = torch.device('cpu')
   elif args.device == 'gpu':
