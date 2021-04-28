@@ -202,9 +202,8 @@ def main(args):
   sg2im_module = importlib.import_module(args.model_module)
   # data loader for VG
   vocab, val_loader = build_loaders(args)
-  
-  import pdb
-  pdb.set_trace() 
+ 
+  # load pre-trained model 
   if args.checkpoint is not None: 
     if args.device == 'cpu':
       device = torch.device('cpu')
