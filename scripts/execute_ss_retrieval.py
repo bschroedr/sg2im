@@ -39,7 +39,7 @@ parser.add_argument('--random_seed', default=42, type=int)
 #parser.add_argument('--no_images', default=False, type=bool)
 
 # Model options
-parser.add_argument('--checkpoint', default='sg2im-models/coco64.pt')
+parser.add_argument('--checkpoint', default=None)
 parser.add_argument('--device', default='gpu', choices=['cpu', 'gpu'])
 parser.add_argument('--model_module', default='sg2im.model_layout_SS')
 
@@ -190,29 +190,40 @@ def build_loaders(args):
   val_loader = DataLoader(vg_dset, **loader_kwargs)
   return vocab, val_loader
 
-def main(args):
+def build_model(module, args, vocab):
+  kwargs = {
+      'vocab': vocab 
+  }
+  model = module.Sg2ImModel(**kwargs)
+  return model
 
+def main(args):
   # import custom model
   sg2im_module = importlib.import_module(args.model_module)
-  
-  if args.device == 'cpu':
-    device = torch.device('cpu')
-  elif args.device == 'gpu':
-    device = torch.device('cuda:0')
-    if not torch.cuda.is_available():
-      print('WARNING: CUDA not available; falling back to CPU')
-      device = torch.device('cpu')
-  # Load the model, with a bit of care in case there are no GPUs
-  map_location = 'cpu' if device == torch.device('cpu') else None
-  assert os.path.isfile(args.checkpoint)
-  checkpoint = torch.load(args.checkpoint, map_location=map_location)
-  model = sg2im_module.Sg2ImModel(**checkpoint['model_kwargs'])
-  model.load_state_dict(checkpoint['model_state'], strict=False)
-  model.eval()
-  model.to(device)
-
   # data loader for VG
   vocab, val_loader = build_loaders(args)
+  
+  import pdb
+  pdb.set_trace() 
+  if args.checkpoint is not None: 
+    if args.device == 'cpu':
+      device = torch.device('cpu')
+    elif args.device == 'gpu':
+      device = torch.device('cuda:0')
+      if not torch.cuda.is_available():
+        print('WARNING: CUDA not available; falling back to CPU')
+        device = torch.device('cpu')
+    # Load the model, with a bit of care in case there are no GPUs
+    map_location = 'cpu' if device == torch.device('cpu') else None
+    assert os.path.isfile(args.checkpoint)
+    checkpoint = torch.load(args.checkpoint, map_location=map_location)
+    model = sg2im_module.Sg2ImModel(**checkpoint['model_kwargs'])
+    model.load_state_dict(checkpoint['model_state'], strict=False)
+    #model.eval()
+    model.to(device)
+  else:
+    model = build_model(sg2im_module, args, vocab)
+  
   # create test db 
   db, image_id_to_entries = generate_db(args, val_loader, vocab, model)  
   # generate query db

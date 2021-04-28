@@ -29,7 +29,7 @@ from sg2im.layers import build_mlp
 
 
 class Sg2ImModel(nn.Module):
-  def __init__(self, vocab, image_size=(64, 64), embedding_dim=64,
+  def __init__(self, vocab, image_size=(64, 64), embedding_dim=128,
                gconv_dim=128, gconv_hidden_dim=512,
                gconv_pooling='avg', gconv_num_layers=5,
                refinement_dims=(1024, 512, 256, 128, 64),
