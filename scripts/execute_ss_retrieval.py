@@ -116,7 +116,7 @@ def generate_db(args, loader, vocab, model):
           subj_embed = obj_embeddings[subj_index].cpu().numpy() #.tolist()
           pred_embed = pred_embeddings[n].cpu().numpy() #.tolist()
           obj_embed = obj_embeddings[obj_index].cpu().numpy() #.tolist()
-          pooled_embed = np.mean([subj_embed,pred_embed,obj_embed], axis=0).tolist()
+          pooled_embed = np.concatenate([subj_embed[0],pred_embed,obj_embed[0]], axis=0).tolist()
           
           relationship = {}
           relationship['metadata'] = {'image_url': img_url, 'vg_scene_id': img_id, 'vg_relationship_id': rel_id}
