@@ -116,8 +116,9 @@ class GraphTripleConv(nn.Module):
     # Send pooled object vectors through net2 to get output object vectors,
     # of shape (O, Dout)
     new_obj_vecs = self.net2(pooled_obj_vecs)
-
+   
     return new_obj_vecs, new_p_vecs
+    #return new_obj_vecs + obj_vecs, new_p_vecs + pred_vecs
 
 
 class GraphTripleConvNet(nn.Module):
@@ -138,9 +139,12 @@ class GraphTripleConvNet(nn.Module):
       self.gconvs.append(GraphTripleConv(**gconv_kwargs))
 
   def forward(self, obj_vecs, pred_vecs, edges):
+    #orig_obj_vecs, orig_pred_vecs = obj_vecs, pred_vecs
     for i in range(self.num_layers):
       gconv = self.gconvs[i]
       obj_vecs, pred_vecs = gconv(obj_vecs, pred_vecs, edges)
+    #obj_vecs += orig_obj_vecs 
+    #pred_vecs += orig_pred_vecs 
     return obj_vecs, pred_vecs
 
 

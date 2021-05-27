@@ -456,6 +456,9 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
         # use fine-tuned RELATION EMBEDDING 
         pred_embeddings = rel_embedding 
 
+        num_obj_class = len(model.vocab['object_idx_to_name'])
+        num_pred_class = len(model.vocab['pred_idx_to_name'])
+
         # open file to record all triplets, per image, in a batch
         file_path = os.path.join(img_dir, 'all_batch_triplets.txt')
         f = open(file_path,'w')
@@ -558,6 +561,14 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             pred = np.array(model.vocab['pred_idx_to_name'])[p[n]]
             obj_index = o[n]
             obj = np.array(model.vocab['object_idx_to_name'])[objs[obj_index]]
+            # triple one-hot vector
+            subj_onehot = np.zeros(num_obj_class)
+            pred_onehot = np.zeros(num_pred_class)
+            obj_onehot = np.zeros(num_obj_class)
+            subj_onehot[objs[subj_index]] = 1 
+            pred_onehot[p[n]] = 1
+            obj_onehot[objs[obj_index]] = 1 
+            tr_onehot = np.concatenate((subj_onehot,pred_onehot,obj_onehot), axis=0)
 	    # pred supercat
             #cat_id = objs[obj_index].cpu().numpy().item()
             #if cat_id == 0:
@@ -605,7 +616,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             #mapc_embed = tr_mapc[n].cpu().numpy()
             input_embed = tr_input[n].cpu().numpy()
             inout_embed = np.concatenate((input_embed, aa, bb, cc)).tolist()
-            #inout_embed = input_embed 
+            
 
             relationship = dict()
             relationship['subject'] = subj
@@ -636,6 +647,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             #relationship['context_embed'] = context_embed
             #relationship['mapc_embed'] = mapc_embed
             relationship['input_embed'] = input_embed
+            relationship['onehot'] = tr_onehot 
             # assign triplet an image id
             relationship['img_id'] = img_id
 
@@ -736,10 +748,13 @@ def calculate_IoU(boxA, boxB):
   xB = min(boxA[2], boxB[2])
   yB = min(boxA[3], boxB[3])
   # compute the area of intersection rectangle
-  interArea = max(0, xB - xA + 1) * max(0, yB - yA + 1)
+  #interArea = max(0, xB - xA + 1) * max(0, yB - yA + 1)
+  interArea = max(0, xB - xA) * max(0, yB - yA)
   # compute the area of both the prediction and ground-truth rectangles
-  boxAArea = (boxA[2] - boxA[0] + 1) * (boxA[3] - boxA[1] + 1)
-  boxBArea = (boxB[2] - boxB[0] + 1) * (boxB[3] - boxB[1] + 1)
+  #boxAArea = (boxA[2] - boxA[0] + 1) * (boxA[3] - boxA[1] + 1)
+  #boxBArea = (boxB[2] - boxB[0] + 1) * (boxB[3] - boxB[1] + 1)
+  boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+  boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
   # compute the intersection over union by taking the intersection area
   # and dividing it by the sum of prediction + ground-truth areas (interesection area)
   IoU = interArea / float(boxAArea + boxBArea - interArea)
@@ -826,7 +841,8 @@ def analyze_embedding_retrieval(db):
         embeds += [db[k][t]['embed']] # concatenated embeddings! <s,p,o>
       else:
         print('Using INPUT EMBEDDINGS for evaluation')
-        embeds += [db[k][t]['input_embed']] # concatenated embeddings! <s,p,o>
+        #embeds += [db[k][t]['input_embed']] # concatenated embeddings! <s,p,o>
+        embeds += [db[k][t]['onehot']] # concatenated embeddings! <s,p,o>
       # VSA
       #embeds += [db[k][t]['mapc_embed']]
       # baselines
@@ -982,6 +998,8 @@ def analyze_embedding_retrieval(db):
         #IoU
         results_idx = index[0:topK_recall]
         results_iou = []
+        results_iou_bool = []
+        min_iou = 0.2
         for b in results_idx:
           # subject bbox
           retr_su_bbox = su_bbox[b]
@@ -990,18 +1008,20 @@ def analyze_embedding_retrieval(db):
           retr_ob_bbox = ob_bbox[b]
           ob_iou = calculate_IoU(query_ob_bbox, retr_ob_bbox) 
           results_iou += [(su_iou + ob_iou)/2.0]
+          #results_iou_bool += [(su_iou >= min_iou) and (ob_iou >= min_iou)] 
        
-        min_iou = 0.5
         rr_iou = (np.array(results_iou) >= min_iou).astype(int)
+        #rr_iou = (np.array(results_iou_bool) == True).astype(int)
         rr_all  = np.logical_and(rr, rr_iou).astype(int)   
         # ideal: flip ones and zeros, sort.
         #rr_not = np.logical_not(rr_all).astype(int)
         #rr_index = rr_not.argsort(axis=0)
         #rr_all = rr_all[rr_index]
 
-        #print(results_iou)
         match_total = np.sum(rr_all[0:topK])
-        mean_iou += [results_iou[0:topK]]
+        #mean_iou += [results_iou]
+        mean_iou += [[np.sum(rr_iou)]]
+        #pdb.set_trace()
 
         triplet_count = hist[labels_to_keys[i]]['count'] - tr_count # remove triplets that are from same image (as query)
         min_triplet_count = 1 # 3 - 95% recall
@@ -1050,7 +1070,7 @@ def analyze_embedding_retrieval(db):
         # modify ##plt.xlabel(np_keys[n], fontsize=6)
         plt.xlabel(k[n], fontsize=6)
         print('RESULT:', k[n], results_iou[c])
-        if query_str == k[n] and results_iou[c] >= 0.5:
+        if query_str == k[n] and results_iou[c] >= min_iou:
           print('=====MATCH=====')
         count += 1
  
