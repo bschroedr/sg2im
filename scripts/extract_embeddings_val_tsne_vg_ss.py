@@ -450,7 +450,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
         #for k, v in samples.items():
         #  samples[k] = imagenet_deprocess_batch(v)
         np_imgs = [gt.cpu().numpy().transpose(1,2,0) for gt in imgs]
-   
+         
         super_boxes = []
  
         # use fine-tuned RELATION EMBEDDING 
@@ -616,7 +616,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             #mapc_embed = tr_mapc[n].cpu().numpy()
             input_embed = tr_input[n].cpu().numpy()
             inout_embed = np.concatenate((input_embed, aa, bb, cc)).tolist()
-            
+            raw_features_embed = np.concatenate((tr_onehot, subj_bbox, obj_bbox), axis=0) 
 
             relationship = dict()
             relationship['subject'] = subj
@@ -648,6 +648,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             #relationship['mapc_embed'] = mapc_embed
             relationship['input_embed'] = input_embed
             relationship['onehot'] = tr_onehot 
+            relationship['raw_features'] = raw_features_embed 
             # assign triplet an image id
             relationship['img_id'] = img_id
 
@@ -665,9 +666,9 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             #relationship['image'] = [patch.tolist()] 
             #relationship['image'] = patch 
             sb_overlay_image = vis.overlay_boxes(np_imgs[batch_index], model.vocab, objs_vec, 
-                               torch.from_numpy(np.array(relationship['super_bbox'])), obj_to_img, W=64, H=64, 
+                               torch.from_numpy(np.array(relationship['super_bbox'])), obj_to_img, W=args.image_size[0], H=args.image_size[1], 
                                drawText=False, drawSuperbox=True)
-            relationship['full_image'] = [sb_overlay_image] 
+            relationship['full_image'] = [sb_overlay_image]
             #relationship['full_image'] = [np_imgs[batch_index].tolist()] 
 
             triplet_str = db_utils.tuple_to_string(triplet)
@@ -842,7 +843,8 @@ def analyze_embedding_retrieval(db):
       else:
         print('Using INPUT EMBEDDINGS for evaluation')
         #embeds += [db[k][t]['input_embed']] # concatenated embeddings! <s,p,o>
-        embeds += [db[k][t]['onehot']] # concatenated embeddings! <s,p,o>
+        #embeds += [db[k][t]['onehot']] # concatenated embeddings! <s,p,o>
+        embeds += [db[k][t]['raw_features']] # concatenated embeddings! <s,p,o>
       # VSA
       #embeds += [db[k][t]['mapc_embed']]
       # baselines
@@ -1007,14 +1009,15 @@ def analyze_embedding_retrieval(db):
           # object bbox
           retr_ob_bbox = ob_bbox[b]
           ob_iou = calculate_IoU(query_ob_bbox, retr_ob_bbox) 
-          results_iou += [(su_iou + ob_iou)/2.0]
+          results_iou += [(su_iou + ob_iou)/2.0] 
+          # check to see if both subj/obj boxes are above min IoU
           #results_iou_bool += [(su_iou >= min_iou) and (ob_iou >= min_iou)] 
        
         rr_iou = (np.array(results_iou) >= min_iou).astype(int)
         #rr_iou = (np.array(results_iou_bool) == True).astype(int)
         rr_all  = np.logical_and(rr, rr_iou).astype(int)   
         # ideal: flip ones and zeros, sort.
-        #rr_not = np.logical_not(rr_all).astype(int)
+        #rr_not = np.logical_not(rr_all).astype(int) 
         #rr_index = rr_not.argsort(axis=0)
         #rr_all = rr_all[rr_index]
 
@@ -1050,7 +1053,8 @@ def analyze_embedding_retrieval(db):
  
       # visualize query and topK images
       count = 1
-      fig = plt.figure(figsize=(12,5))
+      fig = plt.figure(figsize=(18,3))
+      #fig = plt.figure(figsize=(12,5))
       #plt.axis('off')
       idx = np.concatenate(([query_orig_idx],index[0:topK])).tolist() # show query image
       print('QUERY: ', query_str) 
