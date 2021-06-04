@@ -51,7 +51,8 @@ from sg2im.discriminators import PatchDiscriminator, AcCropDiscriminator, CondGA
 from sg2im.metrics import jaccard
 
 # 59% model
-from sg2im.model_layout_vg import Sg2ImModel
+from sg2im.model_layout_ss import Sg2ImModel
+#from sg2im.model_layout_vg import Sg2ImModel
 from sg2im.utils import int_tuple, float_tuple, str_tuple
 from sg2im.utils import timeit, bool_flag, LossManager
 import sg2im.db_utils as db_utils
@@ -373,18 +374,6 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
     float_dtype = torch.FloatTensor
     long_dtype = torch.LongTensor
 
-  ###################
-  if not os.path.isdir(args.output_dir):
-    os.mkdir(args.output_dir)
-    print('Created %s' %args.output_dir)
-
-  img_dir = args.output_dir+'/img_dir'
-
-  if not os.path.isdir(img_dir):
-    os.mkdir(img_dir)
-    print('Created %s' %img_dir)
-  ##################
-
   skip_obj_db = False
   ## if specified load saved triplet embeddings
   if args.coco_triplet_db_json is not None:
@@ -459,9 +448,6 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
         num_obj_class = len(model.vocab['object_idx_to_name'])
         num_pred_class = len(model.vocab['pred_idx_to_name'])
 
-        # open file to record all triplets, per image, in a batch
-        file_path = os.path.join(img_dir, 'all_batch_triplets.txt')
-        f = open(file_path,'w')
         ### embedding stuff below here ####
         for i in range(0,num_batch_samples):
           #print('Processing image', i+1, 'of batch size', args.batch_size)
@@ -585,8 +571,8 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
 
             triplet = tuple([subj, pred, obj]) 
             relationship_data += [triplet]
-            print(tuple([subj, pred, obj]))
-            print(tr_img[n])
+            #print(tuple([subj, pred, obj]))
+            #print(tr_img[n])
             #print('--------------------')
             #f.write('(' + db_utils.tuple_to_string(tuple([subj, pred, obj])) + ')\n')
            
@@ -782,7 +768,7 @@ def analyze_embedding_retrieval(db):
   #  if(l > 1):
   #    print('found triplet with >1 entry:', key)
   #    pdb.set_trace()
-    print(key,':', l)
+    #print(key,':', l)
     #hist[key] = l
     hist[key] = {'count':l}
 
@@ -841,7 +827,6 @@ def analyze_embedding_retrieval(db):
       if not args.input_embeddings: 
         embeds += [db[k][t]['embed']] # concatenated embeddings! <s,p,o>
       else:
-        print('Using INPUT EMBEDDINGS for evaluation')
         #embeds += [db[k][t]['input_embed']] # concatenated embeddings! <s,p,o>
         #embeds += [db[k][t]['onehot']] # concatenated embeddings! <s,p,o>
         embeds += [db[k][t]['raw_features']] # concatenated embeddings! <s,p,o>
@@ -891,7 +876,7 @@ def analyze_embedding_retrieval(db):
   #sc = np.array(sort_count)
   # !!!!!!!!!!!!!!!!!!!!!!1
 
-  print('set up query index')
+  #print('set up query index')
   # set up query index
   # use end of long tail distribution
   use_longtail = False  
@@ -919,8 +904,7 @@ def analyze_embedding_retrieval(db):
   np.random.seed(args.random_seed) # use numpy random seed!!
   query_idx = np.random.permutation(query_idx)
 
-  print(np_keys[:num_keys])
-  print('found ', count, 'query triplets to add to db!')
+  #print(np_keys[:num_keys])
   visualize_exs = True
   print('number of unfiltered triplets:', len(embeds))
 
@@ -930,10 +914,6 @@ def analyze_embedding_retrieval(db):
     #  os.mkdir(img_dir)
     #  print('Created %s' %img_dir)
 
-    # store query/results
-    file_path = 'query_results.txt'
-    #file_path = os.path.join(img_dir, 'query_results.txt')
-    f = open(file_path,'w+')
     t = 0
     topK_recall = 100 
     topK = 10 
@@ -978,7 +958,8 @@ def analyze_embedding_retrieval(db):
       dist[id_idx] = 999.99
       # sort retrieved distances with those of query type "omitted"
       index = dist.argsort(axis=0)
-      print('distance (omit query image): ', dist[index[0:topK]]) # distance of the top10 sorted queries
+      #print('distance (omit query image): ', dist[index[0:topK]]) # distance of the top10 sorted queries
+      
       # exclude zero-distance triplets
       ##z = (dist == 0).astype(int)
       ##zero_count = np.sum(z)
@@ -1034,8 +1015,8 @@ def analyze_embedding_retrieval(db):
           recall = calculate_recall(rr_all, triplet_count)
           ##recall = calculate_recall(rr, triplet_count-1)
           total_recall.append(recall)
-        print(query_str)
-        print('query idx = ', i)
+        #print(query_str)
+        #print('query idx = ', i)
         # comment out for visualization
         if not args.visualize_retrieval: 
           continue
@@ -1048,8 +1029,8 @@ def analyze_embedding_retrieval(db):
         print('skipping ', query_str)
         continue
 
-      print("query img id = ", query_img_id)       
-      print(np.array(img_ids)[index[0:topK]])
+      #print("query img id = ", query_img_id)       
+      #print(np.array(img_ids)[index[0:topK]])
  
       # visualize query and topK images
       count = 1
@@ -1078,8 +1059,6 @@ def analyze_embedding_retrieval(db):
           print('=====MATCH=====')
         count += 1
  
-      print('-------------------------')
-      print('distance (omit query image): ', dist[index[0:topK]])
       # this needs to be before plt.show()
       img_name = subj + '_img_retrieval.png'
       plt.savefig(img_name, bbox_inches='tight', pad_inches = 0)
@@ -1100,28 +1079,28 @@ def analyze_embedding_retrieval(db):
         print('no matches found for object class' , args.obj_class)
         pdb.set_trace() 
       mean_recall = np.mean(total_recall, axis=0) # column-wise
-      np.savetxt('mean_recall_topK' + str(topK_recall)+ '_' + args.model_label + '.txt', mean_recall)
+      #np.savetxt('mean_recall_topK' + str(topK_recall)+ '_' + args.model_label + '.txt', mean_recall)
+      np.savetxt('recall_' + args.model_label + '.txt', np.array(np.mat((mean_recall[0], mean_recall[4], mean_recall[9], mean_recall[99]))), fmt='%10.5f')
       # plot recall
-      fig = plt.figure()
-      plt.style.use('seaborn-whitegrid')
-      plt.ylim(0,1.0)
-      plt.xlim(0, topK_recall)
-      plt.xlabel('k')
-      plt.ylabel('Recall at k')
-      plt.title(args.model_label)
-      x = np.arange(1,topK_recall+1)
-      plt.plot(x, mean_recall)
-      plt.show()
-      print('RECALL: r@1 =', mean_recall[0], 'r@5 = ', mean_recall[5], 'r@10 = ', mean_recall[9], 'r@100 = ', mean_recall[99])
+      #fig = plt.figure()
+      #plt.style.use('seaborn-whitegrid')
+      #plt.ylim(0,1.0)
+      #plt.xlim(0, topK_recall)
+      #plt.xlabel('k')
+      #plt.ylabel('Recall at k')
+      #plt.title(args.model_label)
+      #x = np.arange(1,topK_recall+1)
+      #plt.plot(x, mean_recall)
+      #plt.show()
+      print('RECALL: r@1 =', mean_recall[0], 'r@5 = ', mean_recall[4], 'r@10 = ', mean_recall[9], 'r@100 = ', mean_recall[99])
       # plot histogram of IoU
-      pdb.set_trace()
-      mean_iou = [item for sublist in mean_iou for item in sublist]
-      fig = plt.figure()
-      plt.hist(mean_iou, bins=100)
-      plt.title('Distribution of IoU')
-      plt.show()
+      #mean_iou = [item for sublist in mean_iou for item in sublist]
+      #fig = plt.figure()
+      #plt.hist(mean_iou, bins=100)
+      #plt.title('Distribution of IoU')
+      #plt.show()
       
-    pdb.set_trace()
+    #pdb.set_trace()
     
   #f.close()
 
