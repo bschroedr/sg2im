@@ -147,6 +147,10 @@ parser.add_argument('--triplet_context_size', default=384, type=int)
 parser.add_argument('--visualize_retrieval', default=False, type=int)
 # use input embeddings for evaluation 
 parser.add_argument('--input_embeddings', default=False, type=int)
+# retrieval type
+parser.add_argument('--lvrr', default=False, type=int)
+parser.add_argument('--vrr', default=False, type=int)
+parser.add_argument('--ssr', default=False, type=int)
  
 # load object embeddings db from file
 parser.add_argument('--coco_object_db_json', default=None, type=str)
@@ -612,7 +616,9 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             #relationship['object_supercat'] = obj_supercat
             relationship['subject_bbox'] = subj_bbox.tolist() #JSON can't serialize np.array()
             relationship['object_bbox'] = obj_bbox.tolist()
-
+            relationship['subject_name'] = subj 
+            relationship['object_name'] = obj 
+            
 	    # get super box
             min_x = np.min([subj_bbox[0], obj_bbox[0]])
             min_y = np.min([subj_bbox[1], obj_bbox[1]])
@@ -849,7 +855,12 @@ def analyze_embedding_retrieval(db):
       # full image
       imgs += [ db[k][t]['full_image'] ]
 
-      labels += [k]
+      # L-VRR (spatial + semantic)/VRR (semantic only)
+      if args.lvrr == True or args.vrr == True:
+        labels += [k]
+      # SSR (subj/object only + spatial)
+      elif args.ssr == True:
+        labels += [str(db[k][t]['subject_name'] + ' ' + db[k][t]['object_name'])]
       ##labels += [ k + '\n[' + db[k][t]['subject_supercat'] + '||' + db[k][t]['object_supercat'] + ']' ]
       labels_to_keys += [k]
       subjects += [subj]
@@ -956,6 +967,9 @@ def analyze_embedding_retrieval(db):
       img_triplets = np.array(labels)[id_idx]
       tr_count = len(np.where( img_triplets== query_str)[0]) # includes query triplet
       dist[id_idx] = 999.99
+      # mark all labels as query for these triplets
+      k[id_idx] = 'query triplet'
+ 
       # sort retrieved distances with those of query type "omitted"
       index = dist.argsort(axis=0)
       #print('distance (omit query image): ', dist[index[0:topK]]) # distance of the top10 sorted queries
@@ -974,14 +988,19 @@ def analyze_embedding_retrieval(db):
         # Random result
         #index = np.random.permutation(index) # randomize sorted index
 
-        results = k[index[0:topK_recall]]
-        qq = np.matlib.repmat(query_str,topK_recall,1).squeeze()
+        # semantic relevance
+        results = k[index] # index is sorted index
+        #results = k[index[0:topK_recall]]
+        #qq = np.matlib.repmat(query_str,topK_recall,1).squeeze()
+        qq = np.matlib.repmat(query_str,len(results),1).squeeze()
         rr = (results == qq).astype(int)
 
         #IoU
-        results_idx = index[0:topK_recall]
+        results_idx = index
+        #results_idx = index[0:topK_recall]
         results_iou = []
         results_iou_bool = []
+        rr_all = []
         min_iou = 0.2
         for b in results_idx:
           # subject bbox
@@ -993,27 +1012,41 @@ def analyze_embedding_retrieval(db):
           results_iou += [(su_iou + ob_iou)/2.0] 
           # check to see if both subj/obj boxes are above min IoU
           #results_iou_bool += [(su_iou >= min_iou) and (ob_iou >= min_iou)] 
-       
+     
         rr_iou = (np.array(results_iou) >= min_iou).astype(int)
         #rr_iou = (np.array(results_iou_bool) == True).astype(int)
-        rr_all  = np.logical_and(rr, rr_iou).astype(int)   
+        # consider spatial + semantic relevance for L-VRR or SSR
+        if args.lvrr == True or args.ssr == True:
+          rr_all  = np.logical_and(rr, rr_iou).astype(int)   
+        # consider semantic relevance only for VRR:
+        elif args.vrr == True:
+          rr_all  = rr
         # ideal: flip ones and zeros, sort.
         #rr_not = np.logical_not(rr_all).astype(int) 
         #rr_index = rr_not.argsort(axis=0)
         #rr_all = rr_all[rr_index]
 
-        match_total = np.sum(rr_all[0:topK])
+        match_total = np.sum(rr_all)
         #mean_iou += [results_iou]
         mean_iou += [[np.sum(rr_iou)]]
         #pdb.set_trace()
 
-        triplet_count = hist[labels_to_keys[i]]['count'] - tr_count # remove triplets that are from same image (as query)
+        if args.vrr == True:
+          triplet_count = hist[labels_to_keys[i]]['count'] - tr_count # remove triplets that are from same image (as query)
+        elif args.lvrr == True or args.ssr == True:
+          triplet_count = sum(rr_all)
+
+        print(query_str)
+        print(triplet_count)
+        print(rr_all[0:100])
+        pdb.set_trace()
+
         min_triplet_count = 1 # 3 - 95% recall
         # calculate topK_recalls for 1 query 
         if(triplet_count >= min_triplet_count): 
         ##if(triplet_count-1) > min_triplet_count:
-          recall = calculate_recall(rr_all, triplet_count)
-          ##recall = calculate_recall(rr, triplet_count-1)
+          recall = calculate_recall(rr_all[0:topK], triplet_count)
+          #recall = calculate_recall(rr_all, triplet_count)
           total_recall.append(recall)
         #print(query_str)
         #print('query idx = ', i)
@@ -1348,6 +1381,10 @@ def main(args):
   torch.manual_seed(args.random_seed)
   torch.backends.cudnn.deterministic = True
   torch.backends.cudnn.benchmark = False
+
+  if args.lvrr == False and args.vrr == False and args.ssr == False:
+    print('Need to specify retrieval type: --lvrr, --vrr, or --ssr')
+    exit() 
 
   if args.device == 'cpu':
     device = torch.device('cpu')
