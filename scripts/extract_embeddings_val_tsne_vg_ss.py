@@ -146,7 +146,8 @@ parser.add_argument('--triplet_context_size', default=384, type=int)
 # show retrieval visualization
 parser.add_argument('--visualize_retrieval', default=False, type=int)
 # use input embeddings for evaluation 
-parser.add_argument('--input_embeddings', default=False, type=int)
+parser.add_argument('--raw_features', default=False, type=int)
+
 # retrieval type
 parser.add_argument('--lvrr', default=False, type=int)
 parser.add_argument('--vrr', default=False, type=int)
@@ -558,7 +559,9 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             subj_onehot[objs[subj_index]] = 1 
             pred_onehot[p[n]] = 1
             obj_onehot[objs[obj_index]] = 1 
-            tr_onehot = np.concatenate((subj_onehot,pred_onehot,obj_onehot), axis=0)
+            vrr_onehot = np.concatenate((subj_onehot,pred_onehot,obj_onehot), axis=0)
+            ssr_onehot = np.concatenate((subj_onehot,obj_onehot), axis=0)
+
 	    # pred supercat
             #cat_id = objs[obj_index].cpu().numpy().item()
             #if cat_id == 0:
@@ -606,7 +609,8 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             #mapc_embed = tr_mapc[n].cpu().numpy()
             input_embed = tr_input[n].cpu().numpy()
             inout_embed = np.concatenate((input_embed, aa, bb, cc)).tolist()
-            raw_features_embed = np.concatenate((tr_onehot, subj_bbox, obj_bbox), axis=0) 
+            lvrr_raw_features_embed = np.concatenate((vrr_onehot, subj_bbox, obj_bbox), axis=0) 
+            ssr_raw_features_embed = np.concatenate((ssr_onehot, subj_bbox, obj_bbox), axis=0) 
 
             relationship = dict()
             relationship['subject'] = subj
@@ -639,8 +643,9 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             #relationship['context_embed'] = context_embed
             #relationship['mapc_embed'] = mapc_embed
             relationship['input_embed'] = input_embed
-            relationship['onehot'] = tr_onehot 
-            relationship['raw_features'] = raw_features_embed 
+            relationship['raw_vrr'] = vrr_onehot 
+            relationship['raw_ssr'] = ssr_raw_features_embed 
+            relationship['raw_lvrr'] = lvrr_raw_features_embed 
             # assign triplet an image id
             relationship['img_id'] = img_id
 
@@ -830,18 +835,21 @@ def analyze_embedding_retrieval(db):
     # iterate over list of triplets
     for t in range(0, len(db[k])):
       # report results using this
-      if not args.input_embeddings: 
-        embeds += [db[k][t]['embed']] # concatenated embeddings! <s,p,o>
+      if not args.raw_features: 
+        if args.vrr == True:
+          embeds += [db[k][t]['embed']]
+        elif args.lvrr == True:
+          embeds += [np.concatenate((db[k][t]['embed'], db[k][t]['subject_bbox'][0], db[k][t]['object_bbox'][0])).tolist()] 
+        elif args.ssr == True:
+          embeds += [np.concatenate((db[k][t]['subject_embed'][0], db[k][t]['object_embed'][0], db[k][t]['subject_bbox'][0], db[k][t]['object_bbox'][0])).tolist()] 
       else:
-        #embeds += [db[k][t]['input_embed']] # concatenated embeddings! <s,p,o>
-        #embeds += [db[k][t]['onehot']] # concatenated embeddings! <s,p,o>
-        embeds += [db[k][t]['raw_features']] # concatenated embeddings! <s,p,o>
-      # VSA
-      #embeds += [db[k][t]['mapc_embed']]
-      # baselines
-      #embeds += db[k][t]['subject_embed']  
-      #embeds += db[k][t]['object_embed'] 
-      #embeds += [ db[k][t]['predicate_embed'] ] # too many 0s in topK distances 
+        if args.vrr == True:
+          embeds += [db[k][t]['vrr_raw_features']] 
+        elif args.lvrr == True:
+          embeds += [db[k][t]['lvrr_raw_features']] 
+        elif args.ssr == True:
+          embeds += [db[k][t]['ssr_raw_features']] 
+      
       su += db[k][t]['subject_embed'] 
       ob += db[k][t]['object_embed'] 
       pr += [ db[k][t]['predicate_embed'] ]
@@ -1022,9 +1030,9 @@ def analyze_embedding_retrieval(db):
         elif args.vrr == True:
           rr_all  = rr
         # ideal: flip ones and zeros, sort.
-        #rr_not = np.logical_not(rr_all).astype(int) 
-        #rr_index = rr_not.argsort(axis=0)
-        #rr_all = rr_all[rr_index]
+        rr_not = np.logical_not(rr_all).astype(int) 
+        rr_index = rr_not.argsort(axis=0)
+        rr_all = rr_all[rr_index]
 
         match_total = np.sum(rr_all)
         #mean_iou += [results_iou]
@@ -1036,20 +1044,18 @@ def analyze_embedding_retrieval(db):
         elif args.lvrr == True or args.ssr == True:
           triplet_count = sum(rr_all)
 
-        print(query_str)
-        print(triplet_count)
-        print(rr_all[0:100])
-        pdb.set_trace()
-
         min_triplet_count = 1 # 3 - 95% recall
         # calculate topK_recalls for 1 query 
         if(triplet_count >= min_triplet_count): 
         ##if(triplet_count-1) > min_triplet_count:
-          recall = calculate_recall(rr_all[0:topK], triplet_count)
+          recall = calculate_recall(rr_all[0:topK_recall], triplet_count)
           #recall = calculate_recall(rr_all, triplet_count)
           total_recall.append(recall)
-        #print(query_str)
         #print('query idx = ', i)
+      #  skip query that doesn't have at least 1 retrieval result 
+        elif(triplet_count < min_triplet_count): 
+          print('skipping recall calculation for ', query_str)
+          continue
         # comment out for visualization
         if not args.visualize_retrieval: 
           continue
@@ -1105,7 +1111,8 @@ def analyze_embedding_retrieval(db):
       #f.write('RESULTS:' + str(results) + '\n')
       pdb.set_trace()
       t += 1
-  
+ 
+    pdb.set_trace() 
     # calculate average recall
     if(find_recall):
       if total_recall == []:
