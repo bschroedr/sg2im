@@ -836,19 +836,14 @@ def analyze_embedding_retrieval(db):
     for t in range(0, len(db[k])):
       # report results using this
       if not args.raw_features: 
-        if args.vrr == True:
           embeds += [db[k][t]['embed']]
-        elif args.lvrr == True:
-          embeds += [np.concatenate((db[k][t]['embed'], db[k][t]['subject_bbox'][0], db[k][t]['object_bbox'][0])).tolist()] 
-        elif args.ssr == True:
-          embeds += [np.concatenate((db[k][t]['subject_embed'][0], db[k][t]['object_embed'][0], db[k][t]['subject_bbox'][0], db[k][t]['object_bbox'][0])).tolist()] 
       else:
         if args.vrr == True:
-          embeds += [db[k][t]['vrr_raw_features']] 
+          embeds += [db[k][t]['raw_vrr']] 
         elif args.lvrr == True:
-          embeds += [db[k][t]['lvrr_raw_features']] 
+          embeds += [db[k][t]['raw_lvrr']] 
         elif args.ssr == True:
-          embeds += [db[k][t]['ssr_raw_features']] 
+          embeds += [db[k][t]['raw_ssr']] 
       
       su += db[k][t]['subject_embed'] 
       ob += db[k][t]['object_embed'] 
@@ -976,7 +971,7 @@ def analyze_embedding_retrieval(db):
       tr_count = len(np.where( img_triplets== query_str)[0]) # includes query triplet
       dist[id_idx] = 999.99
       # mark all labels as query for these triplets
-      k[id_idx] = 'query triplet'
+      k[id_idx] = "[query]\n" + query_str
  
       # sort retrieved distances with those of query type "omitted"
       index = dist.argsort(axis=0)
@@ -1030,9 +1025,9 @@ def analyze_embedding_retrieval(db):
         elif args.vrr == True:
           rr_all  = rr
         # ideal: flip ones and zeros, sort.
-        rr_not = np.logical_not(rr_all).astype(int) 
-        rr_index = rr_not.argsort(axis=0)
-        rr_all = rr_all[rr_index]
+        #rr_not = np.logical_not(rr_all).astype(int) 
+        #rr_index = rr_not.argsort(axis=0)
+        #rr_all = rr_all[rr_index]
 
         match_total = np.sum(rr_all)
         #mean_iou += [results_iou]
@@ -1112,7 +1107,6 @@ def analyze_embedding_retrieval(db):
       pdb.set_trace()
       t += 1
  
-    pdb.set_trace() 
     # calculate average recall
     if(find_recall):
       if total_recall == []:
