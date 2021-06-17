@@ -68,7 +68,8 @@ import sg2im.vis as vis
 
 #torch.backends.cudnn.benchmark = True
 
-VG_DIR = os.path.expanduser('/home/brigit/sandbox/sg2im/datasets/vg')
+VG_DIR = os.path.expanduser('/home/brigit/sandbox/sg2im_brigit/datasets/vg')
+#VG_DIR = os.path.expanduser('/home/brigit/sandbox/sg2im/datasets/vg')
 COCO_DIR = os.path.expanduser('/home/brigit/datasets/coco_stuff')
 USER_DIR = os.path.expanduser('/home/brigit/')
 
@@ -509,6 +510,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
 	  # process all triples for in image
           tr_index = np.where(triple_to_img.cpu().numpy() == i)
           tr_img = triples[tr_index].cpu()
+          pred_embeddings_img = pred_embeddings[tr_index]
           # batch index
           batch_index = np.unique(triple_to_img[tr_index].cpu()).item()
 	  # 8 point triple boxes
@@ -597,11 +599,11 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
 
 	    # SG GCNN embeddings
             subj_embed = obj_embeddings[subj_index].cpu().numpy().tolist()
-            pred_embed = pred_embeddings[n].cpu().numpy().tolist()
+            pred_embed = pred_embeddings_img[n].cpu().numpy().tolist()
             obj_embed = obj_embeddings[obj_index].cpu().numpy().tolist()
             #pooled_embed = (obj_embeddings[subj_index].cpu().numpy() + pred_embeddings[n].cpu().numpy() + obj_embeddings[obj_index].cpu().numpy())/3
             aa = obj_embeddings[subj_index].cpu().numpy().squeeze()
-            bb = pred_embeddings[n].cpu().numpy() 
+            bb = pred_embeddings_img[n].cpu().numpy() 
             cc = obj_embeddings[obj_index].cpu().numpy().squeeze()
             pooled_embed = np.concatenate((aa, bb, cc)).tolist()
             #context_embed = tr_context[n].cpu().numpy()
@@ -611,7 +613,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             inout_embed = np.concatenate((input_embed, aa, bb, cc)).tolist()
             lvrr_raw_features_embed = np.concatenate((vrr_onehot, subj_bbox, obj_bbox), axis=0) 
             ssr_raw_features_embed = np.concatenate((ssr_onehot, subj_bbox, obj_bbox), axis=0) 
-
+            
             relationship = dict()
             relationship['subject'] = subj
             relationship['predicate'] = pred
