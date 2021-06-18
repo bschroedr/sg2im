@@ -14,6 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os, sys
+sys.path.append('.')
+import sg2im
 import pdb
 import argparse
 import functools
@@ -64,7 +67,7 @@ import sg2im.vis as vis
 
 #torch.backends.cudnn.benchmark = True
 
-VG_DIR = os.path.expanduser('/home/brigit/sandbox/test/sg2im_brigit_test/datasets/vg')
+VG_DIR = os.path.expanduser('/home/brigit/sandbox/test/sg2im_brigit/datasets/vg')
 #VG_DIR = os.path.expanduser('/home/brigit/sandbox/sg2im_brigit/datasets/vg')
 #VG_DIR = os.path.expanduser('/home/brigit/sandbox/sg2im/datasets/vg')
 COCO_DIR = os.path.expanduser('/home/brigit/datasets/coco_stuff')
