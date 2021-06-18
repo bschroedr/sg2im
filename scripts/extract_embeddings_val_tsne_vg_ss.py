@@ -41,10 +41,6 @@ from scipy.cluster.hierarchy import cophenet
 from scipy.spatial.distance import pdist, squareform
 from sg2im.heatmapcluster import heatmapcluster
 
-#from sg2im.data.coco_ss import CocoSceneGraphDataset, coco_collate_fn
-#from sg2im.data.coco import CocoSceneGraphDataset, coco_collate_fn
-#from sg2im.data.coco_aug import CocoSceneGraphDataset, coco_collate_fn
-from sg2im.data.coco_ep_word import CocoSceneGraphDataset, coco_collate_fn
 from sg2im.data.vg import VgSceneGraphDataset, vg_collate_fn
 from sg2im.discriminators import PatchDiscriminator, AcCropDiscriminator, CondGANPatchDiscriminator, CondGANDiscriminator
 #from sg2im.losses import get_gan_losses
