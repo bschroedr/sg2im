@@ -33,8 +33,8 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import torchvision.models as models
 #from tsne import bh_sne
-import pandas as pd
-import seaborn as sns
+#import pandas as pd
+#import seaborn as sns
 import matplotlib.pyplot as plt
 from scipy.cluster.hierarchy import dendrogram, linkage
 from scipy.cluster.hierarchy import cophenet
@@ -68,7 +68,8 @@ import sg2im.vis as vis
 
 #torch.backends.cudnn.benchmark = True
 
-VG_DIR = os.path.expanduser('/home/brigit/sandbox/sg2im_brigit/datasets/vg')
+VG_DIR = os.path.expanduser('/home/brigit/sandbox/test/sg2im_brigit_test/datasets/vg')
+#VG_DIR = os.path.expanduser('/home/brigit/sandbox/sg2im_brigit/datasets/vg')
 #VG_DIR = os.path.expanduser('/home/brigit/sandbox/sg2im/datasets/vg')
 COCO_DIR = os.path.expanduser('/home/brigit/datasets/coco_stuff')
 USER_DIR = os.path.expanduser('/home/brigit/')
@@ -1027,9 +1028,9 @@ def analyze_embedding_retrieval(db):
         elif args.vrr == True:
           rr_all  = rr
         # ideal: flip ones and zeros, sort.
-        #rr_not = np.logical_not(rr_all).astype(int) 
-        #rr_index = rr_not.argsort(axis=0)
-        #rr_all = rr_all[rr_index]
+        rr_not = np.logical_not(rr_all).astype(int) 
+        rr_index = rr_not.argsort(axis=0)
+        rr_all = rr_all[rr_index]
 
         match_total = np.sum(rr_all)
         #mean_iou += [results_iou]

@@ -33,8 +33,8 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import torchvision.models as models
 #from tsne import bh_sne
-import pandas as pd
-import seaborn as sns
+#import pandas as pd
+#import seaborn as sns
 import matplotlib.pyplot as plt
 from scipy.cluster.hierarchy import dendrogram, linkage
 from scipy.cluster.hierarchy import cophenet
