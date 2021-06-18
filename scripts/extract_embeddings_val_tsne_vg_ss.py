@@ -14,9 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os, sys
-sys.path.append('.')
-import sg2im
 import pdb
 import argparse
 import functools
