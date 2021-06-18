@@ -61,6 +61,8 @@ class VgSceneGraphDataset(Dataset):
       for k, v in f.items():
         if k == 'image_paths':
           self.image_paths = list(v)
+        elif k == 'image_urls':
+          self.image_urls = list(v)
         else:
           self.data[k] = torch.IntTensor(np.asarray(v))
 
