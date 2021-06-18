@@ -1,0 +1,32 @@
+IF STARTING FROM SCRATCH (SETUP VIRTUAL ENV)::
+git clone https://github.com/bschroedr/sg2im.git sg2im_test
+cd ~/sg2im_test
+python3 -m venv env # create new virtual env
+source env/bin/activate
+pip install -r requirements.txt
+echo $PWD > env/lib/python3.7/site-packages/sg2im.pth
+
+RUN EVAL SCRIPT AFTER VIRTUAL ENV SETUP:
+cd ~/sg2im/
+source env/bin/activate
+# the following four steps are optional if dataset not downloaded
+mkdir datasets/ # optional
+mkdir datasets/vg  #
+bash scripts/download_vg.sh --vg_dir /home/test_user/sg2im/datasets/vg # this takes a while but only needs to be done once
+python scripts/preprocess_vg.py --vg_dir /home/test_user/sg2im/datasets/vg # preprocess dataset
+
+# In scripts/extract_embeddings_val_tsne_vg_ss.py, change this line to the path to your vg dataset.
+# VG_DIR = os.path.expanduser('/home/test_user/sg2im/datasets/vg')
+# If training models, do the same in scripts/train_layout_ss.py
+
+# run eval script with supplied checkpoint
+OMP_NUM_THREADS=16 MKL_NUM_THREADS=16 python scripts/extract_embeddings_val_tsne_vg_ss.py --checkpoint=/home/test_user/layout_models/checkpoint_with_model_35000.pt --batch_size 16 --num_val_samples 1025 --image_size 128,128   --dataset vg --model_label 'test' --visualize_retrieval 0 --lvrr 1 --raw_features 1OMP_NUM_THREADS=16 MKL_NUM_THREADS=16 python scripts/extract_embeddings_val_tsne_vg_ss.py --checkpoint=/home/test_user/layout_models/checkpoint_with_model_35000.pt --batch_size 16 --num_val_samples 1025 --image_size 128,128   --dataset vg --model_label 'test' --visualize_retrieval 0 --lvrr 1 --raw_features 1
+
+# expected result
+# RECALL: r@1 = 0.5461121589376418 r@5 =  0.9107898483349857 r@10 =  0.9819316011448429 r@100 =  1.0
+
+INSTALLED DATASET LOCATION:
+/home/test_user/sg2im/datasets/vg
+
+CHECKPOINT LOCATION:
+/home/test_user/layout_models/checkpoint_with_model_35000.pt
