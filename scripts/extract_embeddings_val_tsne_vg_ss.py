@@ -66,7 +66,7 @@ import sg2im.vis as vis
 
 #torch.backends.cudnn.benchmark = True
 
-VG_DIR = os.path.expanduser('/home/brigit/sandbox/test/sg2im_brigit/datasets/vg')
+VG_DIR = os.path.expanduser('/home/brigit/sandbox/sg2im_brigit/datasets/vg')
 #VG_DIR = os.path.expanduser('/home/brigit/sandbox/sg2im_brigit/datasets/vg')
 #VG_DIR = os.path.expanduser('/home/brigit/sandbox/sg2im/datasets/vg')
 COCO_DIR = os.path.expanduser('/home/brigit/datasets/coco_stuff')
@@ -145,8 +145,11 @@ parser.add_argument('--use_masked_sg', default=False, type=int)
 parser.add_argument('--triplet_context_size', default=384, type=int)
 # show retrieval visualization
 parser.add_argument('--visualize_retrieval', default=False, type=int)
+# show oracle visualization
+parser.add_argument('--visualize_oracle', default=False, type=int)
 # use input embeddings for evaluation 
 parser.add_argument('--raw_features', default=False, type=int)
+parser.add_argument('--min_iou', default=0.2, type=float)
 
 # retrieval type
 parser.add_argument('--lvrr', default=False, type=int)
@@ -221,7 +224,7 @@ parser.add_argument('--d_img_weight', default=1.0, type=float) # multiplied by d
 # Output options
 parser.add_argument('--print_every', default=10, type=int)
 parser.add_argument('--timing', default=False, type=bool_flag)
-parser.add_argument('--output_dir', default=os.getcwd())
+parser.add_argument('--output_dir', default='./test/')
 
 parser.add_argument('--checkpoint', default='sg2im-models/coco64.pt')
 parser.add_argument('--device', default='gpu', choices=['cpu', 'gpu'])
@@ -663,9 +666,14 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
             # to recover np array: patch = np.array(relationship['image'])
             #relationship['image'] = [patch.tolist()] 
             #relationship['image'] = patch 
+            #sb_overlay_image = vis.overlay_boxes(np_imgs[batch_index], model.vocab, objs_vec, 
+            #                   torch.from_numpy(np.array([relationship['super_bbox']])), obj_to_img, W=args.image_size[0], H=args.image_size[1], 
+            #                   drawText=False, drawSuperbox=True)
             sb_overlay_image = vis.overlay_boxes(np_imgs[batch_index], model.vocab, objs_vec, 
-                               torch.from_numpy(np.array(relationship['super_bbox'])), obj_to_img, W=args.image_size[0], H=args.image_size[1], 
-                               drawText=False, drawSuperbox=True)
+                               torch.from_numpy(np.array([relationship['subject_bbox'], 
+                               relationship['object_bbox']])), obj_to_img, 
+                               W=args.image_size[0], H=args.image_size[1], 
+                               drawText=False, drawSuperbox=False)
             relationship['full_image'] = [sb_overlay_image]
             #relationship['full_image'] = [np_imgs[batch_index].tolist()] 
 
@@ -707,20 +715,7 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
   # also, compare word vs SG embedding
   if triplet_db is not None:
     analyze_embedding_retrieval(triplet_db)
-  #analyze_object_db(object_db, analyze_hierarchical_cluster=True)
   
-  #batch_data = {
-  #  'objs': objs.detach().cpu().clone(),
-  #  'boxes_gt': boxes.detach().cpu().clone(),
-  #  'masks_gt': masks_to_store,
-  #  'triples': triples.detach().cpu().clone(),
-  #  'obj_to_img': obj_to_img.detach().cpu().clone(),
-  #  'triple_to_img': triple_to_img.detach().cpu().clone(),
-  #  'boxes_pred': boxes_pred.detach().cpu().clone(),
-  #  'masks_pred': masks_pred_to_store
-  #}
-  #out = [mean_losses, samples, batch_data, avg_iou]
-  #out = [mean_losses, avg_iou]
   out = []
 
   ####################
@@ -922,13 +917,9 @@ def analyze_embedding_retrieval(db):
   #print(np_keys[:num_keys])
   visualize_exs = True
   print('number of unfiltered triplets:', len(embeds))
+  f = open("all_queries_docs.txt", "w")
 
   if(visualize_exs):
-    #img_dir = args.output_dir + '/query_results'
-    #if not os.path.isdir(img_dir):
-    #  os.mkdir(img_dir)
-    #  print('Created %s' %img_dir)
-
     t = 0
     topK_recall = 100 
     topK = 10 
@@ -969,24 +960,17 @@ def analyze_embedding_retrieval(db):
       # find matching img ids to remove query img from ranked results
       id_idx = np.where(np.array(img_ids) == query_img_id)
       img_triplets = np.array(labels)[id_idx]
-      tr_count = len(np.where( img_triplets== query_str)[0]) # includes query triplet
+      tr_count = len(np.where(img_triplets== query_str)[0]) # includes query triplet
       dist[id_idx] = 999.99
       # mark all labels as query for these triplets
       k[id_idx] = "[query]\n" + query_str
  
       # sort retrieved distances with those of query type "omitted"
       index = dist.argsort(axis=0)
-      #print('distance (omit query image): ', dist[index[0:topK]]) # distance of the top10 sorted queries
       
-      # exclude zero-distance triplets
-      ##z = (dist == 0).astype(int)
-      ##zero_count = np.sum(z)
-      #  set dist == 0 to inf
-      ##z_idx = np.where(dist == 0)
-      ##dist[z_idx] = 999
-      # re-sort after resetting distances
-      ##index = dist.argsort(axis=0) # indices of sorted list
-      
+      # write all queries/docs to file 
+      #f.write(query_str + '\n') 
+
       # calculate recall
       if(find_recall):
         # Random result
@@ -1002,10 +986,12 @@ def analyze_embedding_retrieval(db):
         #IoU
         results_idx = index
         #results_idx = index[0:topK_recall]
+        s_iou = []
+        o_iou = []
         results_iou = []
         results_iou_bool = []
         rr_all = []
-        min_iou = 0.2
+        min_iou = args.min_iou
         for b in results_idx:
           # subject bbox
           retr_su_bbox = su_bbox[b]
@@ -1013,12 +999,14 @@ def analyze_embedding_retrieval(db):
           # object bbox
           retr_ob_bbox = ob_bbox[b]
           ob_iou = calculate_IoU(query_ob_bbox, retr_ob_bbox) 
-          results_iou += [(su_iou + ob_iou)/2.0] 
+          ##results_iou += [(su_iou + ob_iou)/2.0] 
           # check to see if both subj/obj boxes are above min IoU
-          #results_iou_bool += [(su_iou >= min_iou) and (ob_iou >= min_iou)] 
+          results_iou_bool += [(su_iou >= min_iou) and (ob_iou >= min_iou)] 
+          s_iou += [su_iou]
+          o_iou += [ob_iou]
      
-        rr_iou = (np.array(results_iou) >= min_iou).astype(int)
-        #rr_iou = (np.array(results_iou_bool) == True).astype(int)
+        ##rr_iou = (np.array(results_iou) >= min_iou).astype(int)
+        rr_iou = (np.array(results_iou_bool) == True).astype(int)
         # consider spatial + semantic relevance for L-VRR or SSR
         if args.lvrr == True or args.ssr == True:
           rr_all  = np.logical_and(rr, rr_iou).astype(int)   
@@ -1026,9 +1014,9 @@ def analyze_embedding_retrieval(db):
         elif args.vrr == True:
           rr_all  = rr
         # ideal: flip ones and zeros, sort.
-        rr_not = np.logical_not(rr_all).astype(int) 
-        rr_index = rr_not.argsort(axis=0)
-        rr_all = rr_all[rr_index]
+        #rr_not = np.logical_not(rr_all).astype(int) 
+        #rr_index = rr_not.argsort(axis=0)
+        #rr_all = rr_all[rr_index]
 
         match_total = np.sum(rr_all)
         #mean_iou += [results_iou]
@@ -1047,10 +1035,13 @@ def analyze_embedding_retrieval(db):
           recall = calculate_recall(rr_all[0:topK_recall], triplet_count)
           #recall = calculate_recall(rr_all, triplet_count)
           total_recall.append(recall)
+          # write query to file 
+          f.write(query_str + '(query)\n') 
         #print('query idx = ', i)
       #  skip query that doesn't have at least 1 retrieval result 
         elif(triplet_count < min_triplet_count): 
           print('skipping recall calculation for ', query_str)
+          f.write(query_str + '\n') 
           continue
         # comment out for visualization
         if not args.visualize_retrieval: 
@@ -1063,49 +1054,50 @@ def analyze_embedding_retrieval(db):
       if(triplet_count < min_triplet_count): 
         print('skipping ', query_str)
         continue
-
-      #print("query img id = ", query_img_id)       
-      #print(np.array(img_ids)[index[0:topK]])
  
       # visualize query and topK images
       count = 1
       fig = plt.figure(figsize=(18,3))
-      #fig = plt.figure(figsize=(12,5))
-      #plt.axis('off')
-      idx = np.concatenate(([query_orig_idx],index[0:topK])).tolist() # show query image
+      #if args.visualize_oracle:
+      #  idx = index[0:100].tolist() # to get all top matches
+      #  ax = fig.add_subplot(1,match_total+1, count)
+      #else:
+      idx = index[0:topK].tolist()
+      ax = fig.add_subplot(1,topK+1, count)
       print('QUERY: ', query_str) 
-      # NOTE: this  VVVVVVV  may only work over small groups of images :( 
-      # different triplets showing up from the same image shows that context matters; (triplets don't work in isolation s.t.s.)
-      # things that are identical in context are close in embedding space!!!! 
-      # overall query (eg. pooling of predicate embeddings for 1 image)  to do image search?
-      #pdb.set_trace() 
+      sm_img = np.array(imgs[query_orig_idx]).squeeze()
+      plt.imshow(sm_img)
+      ax.tick_params(length=0, width=0, labelbottom=False, labelleft=False)
+      plt.xlabel(k[query_orig_idx], fontsize=6)
+      count += 1
       for c, n in enumerate(idx):
-      #for n in idx:
-        ax = fig.add_subplot(1,len(idx), count)
+        iou_label = "{:.2f} {:.2f}".format(s_iou[c], o_iou[c])
+        x_label = k[n] + '\n' + iou_label
+        if args.visualize_oracle:
+          if rr_all[c] == True:
+            x_label = x_label + ' MATCH'
+          #if rr_all[c] == False:
+            #continue 
+          #ax = fig.add_subplot(1,match_total+1, count)
+        #else:
+        ax = fig.add_subplot(1,topK+1, count)
         sm_img = np.array(imgs[n]).squeeze()
         plt.imshow(sm_img)
         ax.tick_params(length=0, width=0, labelbottom=False, labelleft=False)
-        print('img size: ', sm_img.shape)
-        #plt.imshow(sm_img, dtype=np.float32)
-        # modify ##plt.xlabel(np_keys[n], fontsize=6)
-        plt.xlabel(k[n], fontsize=6)
-        print('RESULT:', k[n], results_iou[c])
-        if query_str == k[n] and results_iou[c] >= min_iou:
+        plt.xlabel(x_label, fontsize=6)
+        #plt.xlabel(k[n], fontsize=6)
+        print('RESULT:', k[n], s_iou[c], o_iou[c])
+        if rr_all[c] == True:
           print('=====MATCH=====')
         count += 1
- 
-      # this needs to be before plt.show()
-      img_name = subj + '_img_retrieval.png'
-      plt.savefig(img_name, bbox_inches='tight', pad_inches = 0)
-      #img_name = os.path.join(img_dir, '%06d_query_img.png' % t)
-      plt.show()
+
+      if args.visualize_oracle: 
+        # this needs to be before plt.show()
+        img_name = args.output_dir + '/' + args.model_label + '_IoU' + str(args.min_iou) + '_' + str(query_orig_idx) + '.png'
+        plt.savefig(img_name, bbox_inches='tight', pad_inches = 0)
+      #else:
+      #plt.show()
     
-      #print('QUERY: ', np_keys[i])
-      #pprint.pprint(results)
-      #f.write('---------- image ' + str(t) + ' ----------\n')
-      #f.write('QUERY: ' + np_keys[i] + '\n')
-      #f.write('RESULTS:' + str(results) + '\n')
-      pdb.set_trace()
       t += 1
  
     # calculate average recall
@@ -1137,247 +1129,9 @@ def analyze_embedding_retrieval(db):
       
     #pdb.set_trace()
     
-  #f.close()
+  f.close()
 
 ###
-def analyze_hierarchical_clustering(mean_embed, word_embed, class_ids, class_labels, mean_embed_2d, label):
-
-  # https://joernhees.de/blog/2015/08/26/scipy-hierarchical-clustering-and-dendrogram-tutorial/
-  # https://stackoverflow.com/questions/41462711/python-calculate-hierarchical-clustering-of-word2vec-vectors-and-plot-the-resu
- 
-  # do linkage (distance matrix) on embedding data
-  # use methods other than 'euclidean' (default) distance if you think
-  # data should not just be clustered to minimize the overall intra 
-  # cluster variance in euclidean space (e.g. word vectors in text clustering)
-  #X = mean_embed
-  #Z = linkage(X, 'ward')  
-  #Z = linkage(X, 'complete')  
-  #  Cophenetic Correlation Coefficient: compares (correlates) the actual pairwise distances 
-  # of all your samples to those implied by the hierarchical clustering. Closest to 1 is best.
-  #cc, coph_dists = cophenet(Z, pdist(X)) # pdist is pairwise distance
-  #print('cophenetic correlation coefficient: ', cc)
-
-  pdb.set_trace()
-  #Z = linkage(mean_embed, method='complete', metric='euclidean')
-  #xxxxx Z = linkage(mean_embed, method='average', metric='correlation')
-  #plt.figure()
-  #plt.title('Hierarchical Clustering Dendrogram: SG Embedding')
-  #plt.xlabel('class')
-  #plt.ylabel('distance')
-  #dendrogram( Z, leaf_rotation=-90.,  leaf_font_size=8., labels = class_labels)
-  #plt.show()
-
-
-  # distance matrices: mean embed, word_embed
-  pdb.set_trace() 
-  #plt.figure()
-  #plt.subplots(figsize=(5,5))
-  dist_mat = squareform(pdist(mean_embed))
-  hm = heatmapcluster(dist_mat, class_labels, class_labels,
-                      num_row_clusters=7, num_col_clusters=7,
-                      label_fontsize=6,
-                      #label_fontsize=4,
-                      xlabel_rotation=-90,
-                      #xlabel_rotation=-75,
-                      ####figsize=(15,13), # w,h
-                      #cmap=plt.cm.cubehelix,
-                      cmap=plt.cm.nipy_spectral,
-                      show_colorbar=True,
-                      top_dendrogram=True,
-                      #row_linkage=lambda x: linkage(x, method='average',
-                      #                              metric='correlation'),
-                      #col_linkage=lambda x: linkage(x.T, method='average',
-                      #                              metric='correlation'),
-                      row_linkage=lambda dist_mat: linkage(dist_mat, method='complete',
-                                                          metric='euclidean'),
-                      col_linkage=lambda x: linkage(dist_mat.T, method='complete',
-                                                   metric='euclidean'),
-                      histogram=False)
-  if label is not None:
-    filename = os.path.join(USER_DIR+'/results', label+'_dendro_dist.png')
-    print('Saving figure', filename)
-    #plt.savefig(filename, dpi=1000, bbox_inches='tight')
-    plt.savefig(filename, dpi=300, bbox_inches='tight')
-  plt.show()
-   
-  # assign dendogram clusters to tsne plot/points
-  #pdb.set_trace()
-  ### VALUES set below here are taken from dendogram : num of clusters
-  #from scipy.cluster.hierarchy import fcluster
-  #k = 7  # # known clusters in dendogram
-  #clusters = fcluster(Z, k, criterion='maxclust')
-  #plt.figure()
-  #plt.title('Dendogram Linkage Clusters (using TsNE coords): SG Embedding')
-  #plt.scatter(mean_embed_2d[:,0], mean_embed_2d[:,1], c=clusters, cmap='Set1')
-  #for i, txt in enumerate(class_labels):
-  #  plt.annotate('  '+txt, (mean_embed_2d[i, 0], mean_embed_2d[i, 1]))
-
-  #### plot heatmap of distance matrix ####
-  #https://gmarti.gitlab.io/ml/2017/09/07/how-to-sort-distance-matrix.html
-  #dist_mat = squareform(pdist(X))
-  #N = len(dist_mat)
-  #plt.pcolormesh(dist_mat)
-  #plt.xlim([0,N])
-  #plt.ylim([0,N])
-  #plt.show()
-  #### plot heatmap of sorted (clustered) distance matrix ####
-  #https://stackoverflow.com/questions/2982929/plotting-results-of-hierarchical-clustering-ontop-of-a-matrix-of-data-in-python
-
-  # word embedding
-  #X = word_embed
-  #Z = linkage(X, method='complete', metric='euclidean')
-  #plt.figure()
-  #plt.title('Hierarchical Clustering Dendrogram: Word Embedding')
-  #plt.xlabel('class')
-  #plt.ylabel('distance')
-  #dendrogram( Z, leaf_rotation=-90.,  leaf_font_size=8., labels = class_labels)
-  #plt.show() 
-
-  # distance matrices: mean embed, word_embed
-  pdb.set_trace()
-
-  # get colors from this heatmap
-  #cmap = plt.get_cmap(plt.cm.coolwarm)
-  #cmaplist = [cmap(i) for i in range(cmap.N)]
-  # create the new map
-  #cmap = cmap.from_list('Custom cmap', cmaplist[0:], cmap.N)
-
-  #plt.figure()
-  dist_mat = squareform(pdist(word_embed))
-  #hm = heatmapcluster(dist_mat, class_labels, class_labels)
-  hm = heatmapcluster(dist_mat, class_labels, class_labels,
-                      #num_row_clusters=57, num_col_clusters=57,
-                      num_row_clusters=19, num_col_clusters=19,
-                      label_fontsize=6,
-                      #label_fontsize=,
-                      xlabel_rotation=90,
-                      #xlabel_rotation=-75,
-                      ####figsize=(15,13), # w,h
-                      cmap=plt.cm.nipy_spectral,
-                      #cmap=plt.cm.cubehelix,
-                      #cmap=plt.cm.coolwarm,
-                      show_colorbar=True,
-                      top_dendrogram=True,
-                      #row_linkage=lambda x: linkage(x, method='average',
-                      #                              metric='correlation'),
-                      #col_linkage=lambda x: linkage(x.T, method='average',
-                      #                              metric='correlation'),
-                      row_linkage=lambda dist_mat: linkage(dist_mat, method='complete',
-                                                          metric='euclidean'),
-                      col_linkage=lambda x: linkage(dist_mat.T, method='complete',
-                                                   metric='euclidean'),
-                      histogram=False)
-  plt.show() 
-
-def analyze_object_db(db, analyze_hierarchical_cluster=False):
-
-  # delete singlton objects
-  if '__image__' in db.keys():
-    del db['__image__']
-  # sort key (object) by count, highest first
-  sort_objs_by_count = sorted(db, key=lambda x: db[x].get('count',0), reverse=True)
-  # object count
-  sort_count = [db[k]['count'] for k in sort_objs_by_count]
-  # word embeddings (GLoVE)
-  #word_embeds = [db[k]['word_embed'] for k in sort_objs_by_count]
-
-  #pdb.set_trace()
-
-  # visualize embedding 
-  word_embeds = []
-  all_embeds = [] 
-  all_ids = []
-  mean_embed = []
-  mean_2d = []
-  mean_ids = []
-  num_classes = 5 # high frequency classes
-  count  = 0
-  class_str = ''
-
-  #for k in db.keys():
-  for n in range(0,len(sort_objs_by_count)):
-    k = sort_objs_by_count[n]
-    o = db[k]['objs']
-    all_embeds += [o[l]['embed'] for l in range(0,len(o))]
-    all_ids += [o[l]['id'] for l in range(0,len(o))]
-    # want one word embed for each key
-    word_embeds += [o[0]['word_embed']]
-    # count n-highest frequency classes
-    if n < num_classes:
-      id = db[k]['objs'][0]['id'] # .tolist()
-      count += db[k]['count']
-      print(k, ': ', db[k]['count'])
-      class_str += k + ' (' + str(id) + '),'
-
-  # generate tsne (reduced dimn) embedding on all points
-  X = np.array(all_embeds, dtype=np.float64)
-  y = np.array(all_ids)
-  #X_2d = bh_sne(X) 
-
-  # save data to file
-  np.savetxt('all_val_embed.txt', X)
-  np.savetxt('all_val_ids.txt', y)
-  np.savetxt('all_val_word_embed.txt', np.array(word_embeds))
-
-  # get mean/centroid of each class in tsne space.
-  unique_ids, u_idx = np.unique(all_ids, return_index=True)
-  unique_ids = unique_ids[np.argsort(u_idx)] 
-  mean_ids = unique_ids
-  for u in unique_ids:
-    idx = np.where(np.array(all_ids) == u) #[0] # objects indices in batch
-    # mean tsne embedding
-    #### mean_2d += [np.mean(X_2d[idx], axis=0)] 
-    # mean SG embedding
-    mean_embed += [np.mean(X[idx], axis=0)]
-
-  # plot requires numpy arrays
-  mean_2d = np.array(mean_2d)
-  mean_embed = np.array(mean_embed)
-  mean_ids = np.array(mean_ids) 
-  word_embeds = np.array(word_embeds) 
-  #word_embeds = np.array(torch.stack(word_embeds)) 
-
-  # create embedding heatmap plot for 
-  if analyze_hierarchical_cluster:
-    #analyze_SG_word_embed(mean_embed, word_embeds, mean_ids)
-    #analyze_hierarchical_clustering(mean_embed, word_embeds, mean_ids, sort_objs_by_count, mean_2d, args.model_label)
-    pt_labels = np.repeat('', len(all_embeds))
-    if args.model_label is not None:
-      label = args.model_label + '_top50'
-    else:
-      label = None
-    #analyze_hierarchical_clustering(mean_embed[0:50,:], word_embeds[0:50,:], mean_ids[0:50], sort_objs_by_count[0:50], mean_2d, label)
-
-  pdb.set_trace() 
-  import matplotlib.pyplot as plt
-  # plot and label n-most highest freq classes
-  plt.scatter(mean_2d[0:50:, 0], mean_2d[0:50, 1], c=mean_ids[0:50] )
-  plt.title('COCO-stuff objects by class ID: mean embedding (top 50 classes)')
-  plt.colorbar()
-  #plt.show()
-  pdb.set_trace()
-  # annotate points
-  for i, txt in enumerate(sort_objs_by_count[0:50]):
-    plt.annotate('  '+txt, (mean_2d[i, 0], mean_2d[i, 1]))
-    #plt.annotate(txt, (z[i], y[i]))
-  plt.show()
-  pdb.set_trace()
-
-  #plt.scatter(X_2d[:, 0], X_2d[:, 1], c=y, cmap='jet')
-  #plt.scatter(X_2d[:, 0], X_2d[:, 1], c=y, cmap=plt.cm.get_cmap('RdBu_r'))
-  plt.scatter(X_2d[:, 0], X_2d[:, 1], c=y )
-  plt.title('COCO-stuff objects by class ID') 
-  plt.colorbar()
-  plt.show()
-  # highest frequency classes 
-  #plt.scatter(X_2d[0:count, 0], X_2d[0:count, 1], c=y[0:count], cmap=plt.cm.get_cmap('RdBu_r'))
-  plt.scatter(X_2d[0:count, 0], X_2d[0:count, 1], c=y[0:count])
-  plt.title('COCO-stuff objects by class ID\n(highest freq: ' + class_str + ')') 
-  plt.colorbar()
-  plt.show()
-
-  pdb.set_trace()
-
 def main(args):
   # in order to reproduce results, set seed
   torch.manual_seed(args.random_seed)
@@ -1415,6 +1169,9 @@ def main(args):
     os.mkdir(args.output_dir)
     print('Created %s' %args.output_dir)
 
+  if args.visualize_oracle:
+    args.visualize_retrieval = True
+    args.raw_features = True  
   ## add code for validation visualization
   #logger = Logger(args.output_dir)
   logger = None
