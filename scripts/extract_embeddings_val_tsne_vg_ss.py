@@ -1026,18 +1026,21 @@ def analyze_embedding_retrieval(db):
         min_superbox_iou = 0.75
 
         for b in results_idx:
+          # superbox
+          retr_superbox = superbox[b]
           # subject bbox
           retr_su_bbox = su_bbox[b]
-   	  if not args.relative_iou:
+   	  
+          if not args.relative_iou:
             su_iou = calculate_IoU(query_su_bbox, retr_su_bbox)
           else:
-            su_iou = calculate_relative_IoU(query_superbox_bbox, retr_superbox, query_su_bbox, retr_su_bbox)
+            su_iou = calculate_relative_IoU(query_superbox, retr_superbox, query_su_bbox, retr_su_bbox)
           # object bbox
           retr_ob_bbox = ob_bbox[b]
           if not args.relative_iou:
             ob_iou = calculate_IoU(query_ob_bbox, retr_ob_bbox) 
           else:
-            su_iou = calculate_relative_IoU(query_superbox_bbox, retr_superbox, query_su_bbox, retr_su_bbox)
+            su_iou = calculate_relative_IoU(query_superbox, retr_superbox, query_ob_bbox, retr_ob_bbox)
           # triplet superbox
           retr_superbox = superbox[b]
           superbox_iou = calculate_IoU(query_superbox, retr_superbox) 
