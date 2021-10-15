@@ -150,7 +150,8 @@ parser.add_argument('--visualize_oracle', default=False, type=int)
 # use input embeddings for evaluation 
 parser.add_argument('--raw_features', default=False, type=int)
 parser.add_argument('--min_iou', default=0.2, type=float)
-
+# relative spatial relevance
+parser.add_argument('--relative_iou', default=False, type=int)
 # retrieval type
 parser.add_argument('--lvrr', default=False, type=int)
 parser.add_argument('--vrr', default=False, type=int)
@@ -754,6 +755,31 @@ def calculate_IoU(boxA, boxB):
   IoU = interArea / float(boxAArea + boxBArea - interArea)
   return IoU
 
+def calculate_relative_IoU(q_sbox, r_sbox, q_bbox, r_bbox)
+
+  IoU = 0
+  # crop superboxes
+  # bbox = [x0 y0 x1 y1]
+  # w_qsb = q_sbox[2] - q_sbox[0] 
+  # h_qsb = q_sbox[3] - q_sbox[1]
+  # w_rsb = r_sbox[2] - r_sbox[0] 
+  # h_rsb = r_sbox[3] - r_sbox[1]
+  # get rescale factor from superboxes to apply to q_bbox, r_bbox
+  #w_scale = w_qsb/w_rsb
+  #h_scale = h_qsb/h_rsb  
+  # crop bounding boxes
+  # w_qbb = q_bbox[2] - q_bbox[0] 
+  # h_qbb = q_bbox[3] - q_bbox[1]
+  # w_rbb = r_bbox[2] - r_bbox[0]
+  # h_rbb = r_bbox[3] - r_bbox[1]
+  # rescale r_bbox to calculate IoU between it and q_bbox
+  # w_rbb_sc = w_rbb*w_scale
+  # h_rbb_sc = h_rbb*h_scale
+  # calculate IoU between q_bbox and rescaled r_bbox
+  # bbox = [x0 y0 x1 y1]
+  #IoU = calculate_IoU([0, 0, w_qbb, h_qbb], [0, 0, w_rbb_sc, h_rbb_sc]
+  return IoU
+   
 ###
 
 def euclid_dist(t1, t2):
@@ -812,6 +838,7 @@ def analyze_embedding_retrieval(db):
   iou = []
   su_bbox = []
   ob_bbox = []
+  superbox = []
 
   # randomize triplet index
   su = []
@@ -848,6 +875,8 @@ def analyze_embedding_retrieval(db):
       # calculate IoU
       su_bbox += [db[k][t]['subject_bbox']]
       ob_bbox += [db[k][t]['object_bbox']]
+      superbox += [db[k][t]['super_bbox']]
+
 
       # image patch
       #imgs += [ db[k][t]['image'] ]
@@ -950,6 +979,7 @@ def analyze_embedding_retrieval(db):
       # IoU
       query_su_bbox = su_bbox[i]
       query_ob_bbox = ob_bbox[i]
+      query_superbox = superbox[i]
 
       k[i] = "[query]\n" + k[i]
       # query image id
@@ -988,22 +1018,35 @@ def analyze_embedding_retrieval(db):
         #results_idx = index[0:topK_recall]
         s_iou = []
         o_iou = []
+        sb_iou = []
         results_iou = []
         results_iou_bool = []
         rr_all = []
         min_iou = args.min_iou
+        min_superbox_iou = 0.75
+
         for b in results_idx:
           # subject bbox
           retr_su_bbox = su_bbox[b]
-          su_iou = calculate_IoU(query_su_bbox, retr_su_bbox)
+   	  if not args.relative_iou:
+            su_iou = calculate_IoU(query_su_bbox, retr_su_bbox)
+          else:
+            su_iou = calculate_relative_IoU(query_superbox_bbox, retr_superbox, query_su_bbox, retr_su_bbox)
           # object bbox
           retr_ob_bbox = ob_bbox[b]
-          ob_iou = calculate_IoU(query_ob_bbox, retr_ob_bbox) 
-          ##results_iou += [(su_iou + ob_iou)/2.0] 
+          if not args.relative_iou:
+            ob_iou = calculate_IoU(query_ob_bbox, retr_ob_bbox) 
+          else:
+            su_iou = calculate_relative_IoU(query_superbox_bbox, retr_superbox, query_su_bbox, retr_su_bbox)
+          # triplet superbox
+          retr_superbox = superbox[b]
+          superbox_iou = calculate_IoU(query_superbox, retr_superbox) 
           # check to see if both subj/obj boxes are above min IoU
-          results_iou_bool += [(su_iou >= min_iou) and (ob_iou >= min_iou)] 
+          results_iou_bool += [(su_iou >= min_iou) and (ob_iou >= min_iou) and (superbox_iou >= min_superbox_iou)] 
+          #results_iou_bool += [(su_iou >= min_iou) and (ob_iou >= min_iou)] 
           s_iou += [su_iou]
           o_iou += [ob_iou]
+          sb_iou += [superbox_iou]
      
         ##rr_iou = (np.array(results_iou) >= min_iou).astype(int)
         rr_iou = (np.array(results_iou_bool) == True).astype(int)
@@ -1071,7 +1114,7 @@ def analyze_embedding_retrieval(db):
       plt.xlabel(k[query_orig_idx], fontsize=6)
       count += 1
       for c, n in enumerate(idx):
-        iou_label = "{:.2f} {:.2f}".format(s_iou[c], o_iou[c])
+        iou_label = "{:.2f} {:.2f} {:.2f}".format(sb_iou[c], s_iou[c], o_iou[c])
         x_label = k[n] + '\n' + iou_label
         if args.visualize_oracle:
           if rr_all[c] == True:
