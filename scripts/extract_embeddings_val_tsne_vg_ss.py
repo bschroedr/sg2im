@@ -755,30 +755,28 @@ def calculate_IoU(boxA, boxB):
   IoU = interArea / float(boxAArea + boxBArea - interArea)
   return IoU
 
-def calculate_relative_IoU(q_sbox, r_sbox, q_bbox, r_bbox)
-
-  IoU = 0
+def calculate_relative_IoU(q_sbox, r_sbox, q_bbox, r_bbox):
   # crop superboxes
   # bbox = [x0 y0 x1 y1]
-  # w_qsb = q_sbox[2] - q_sbox[0] 
-  # h_qsb = q_sbox[3] - q_sbox[1]
-  # w_rsb = r_sbox[2] - r_sbox[0] 
-  # h_rsb = r_sbox[3] - r_sbox[1]
+  w_qsb = q_sbox[2] - q_sbox[0] 
+  h_qsb = q_sbox[3] - q_sbox[1]
+  w_rsb = r_sbox[2] - r_sbox[0] 
+  h_rsb = r_sbox[3] - r_sbox[1]
   # get rescale factor from superboxes to apply to q_bbox, r_bbox
-  #w_scale = w_qsb/w_rsb
-  #h_scale = h_qsb/h_rsb  
+  w_scale = w_rsb/w_qsb
+  h_scale = h_rsb/h_qsb  
   # crop bounding boxes
-  # w_qbb = q_bbox[2] - q_bbox[0] 
-  # h_qbb = q_bbox[3] - q_bbox[1]
-  # w_rbb = r_bbox[2] - r_bbox[0]
-  # h_rbb = r_bbox[3] - r_bbox[1]
+  w_qbb = q_bbox[2] - q_bbox[0] 
+  h_qbb = q_bbox[3] - q_bbox[1]
+  w_rbb = r_bbox[2] - r_bbox[0]
+  h_rbb = r_bbox[3] - r_bbox[1]
   # rescale r_bbox to calculate IoU between it and q_bbox
-  # w_rbb_sc = w_rbb*w_scale
-  # h_rbb_sc = h_rbb*h_scale
+  w_rbb_sc = w_rbb*w_scale
+  h_rbb_sc = h_rbb*h_scale
   # calculate IoU between q_bbox and rescaled r_bbox
-  # bbox = [x0 y0 x1 y1]
-  #IoU = calculate_IoU([0, 0, w_qbb, h_qbb], [0, 0, w_rbb_sc, h_rbb_sc]
-  return IoU
+  rel_IoU = calculate_IoU([0, 0, w_qbb, h_qbb], [0, 0, w_rbb_sc, h_rbb_sc])
+  IoU = calculate_IoU([0, 0, w_qbb, h_qbb], [0, 0, w_rbb, h_rbb])
+  return rel_IoU, IoU
    
 ###
 
@@ -1021,35 +1019,38 @@ def analyze_embedding_retrieval(db):
         sb_iou = []
         results_iou = []
         results_iou_bool = []
+        rel_iou_bool = [] 
         rr_all = []
         min_iou = args.min_iou
-        min_superbox_iou = 0.75
+        min_superbox_iou = 0.5
 
         for b in results_idx:
           # superbox
           retr_superbox = superbox[b]
-          # subject bbox
+          # subject/object bbox
           retr_su_bbox = su_bbox[b]
-   	  
-          if not args.relative_iou:
-            su_iou = calculate_IoU(query_su_bbox, retr_su_bbox)
-          else:
-            su_iou = calculate_relative_IoU(query_superbox, retr_superbox, query_su_bbox, retr_su_bbox)
-          # object bbox
           retr_ob_bbox = ob_bbox[b]
-          if not args.relative_iou:
-            ob_iou = calculate_IoU(query_ob_bbox, retr_ob_bbox) 
-          else:
-            su_iou = calculate_relative_IoU(query_superbox, retr_superbox, query_ob_bbox, retr_ob_bbox)
-          # triplet superbox
-          retr_superbox = superbox[b]
+          # triplet superbox IoU for relative IoU calculation
           superbox_iou = calculate_IoU(query_superbox, retr_superbox) 
-          # check to see if both subj/obj boxes are above min IoU
-          results_iou_bool += [(su_iou >= min_iou) and (ob_iou >= min_iou) and (superbox_iou >= min_superbox_iou)] 
+          su_iou = calculate_IoU(query_su_bbox, retr_su_bbox)
+          ob_iou = calculate_IoU(query_ob_bbox, retr_ob_bbox)
+          iou_bool = (su_iou >= min_iou) and (ob_iou >= min_iou)
+          rel_iou_val = False
+          if args.relative_iou and superbox_iou > min_superbox_iou and iou_bool == False:
+            su_iou_rel, su_iou_nonrel = calculate_relative_IoU(query_superbox, retr_superbox, query_su_bbox, retr_su_bbox)
+            ob_iou_rel, ob_iou_nonrel = calculate_relative_IoU(query_superbox, retr_superbox, query_ob_bbox, retr_ob_bbox)          
+           # if relative IoU fails, use original su_iou/ob_iou
+            if (su_iou_rel >= min_iou) and (ob_iou_rel >= min_iou):
+              su_iou = su_iou_rel
+              ob_iou = ob_iou_rel
+              rel_iou_val = True # we have a match with relative IoU
+
+          results_iou_bool += [(su_iou >= min_iou) and (ob_iou >= min_iou)] 
           #results_iou_bool += [(su_iou >= min_iou) and (ob_iou >= min_iou)] 
           s_iou += [su_iou]
           o_iou += [ob_iou]
           sb_iou += [superbox_iou]
+          rel_iou_bool += [rel_iou_val]
      
         ##rr_iou = (np.array(results_iou) >= min_iou).astype(int)
         rr_iou = (np.array(results_iou_bool) == True).astype(int)
@@ -1089,18 +1090,14 @@ def analyze_embedding_retrieval(db):
           print('skipping recall calculation for ', query_str)
           f.write(query_str + '\n') 
           continue
-        # comment out for visualization
-        if not args.visualize_retrieval: 
+        # skip retrieval visualization for this query and
+        # continue on to the next retrieval 
+        if not args.visualize_retrieval and not args.visualize_oracle: 
           continue
         if match_total == 0:
           print('....SKIPPING....')
           continue
 
-      #  skip query that doesn't have at least 1 retrieval result 
-      if(triplet_count < min_triplet_count): 
-        print('skipping ', query_str)
-        continue
- 
       # visualize query and topK images
       count = 1
       fig = plt.figure(figsize=(18,3))
@@ -1121,7 +1118,10 @@ def analyze_embedding_retrieval(db):
         x_label = k[n] + '\n' + iou_label
         if args.visualize_oracle:
           if rr_all[c] == True:
-            x_label = x_label + ' MATCH'
+            if rel_iou_bool == True:
+              x_label = x_label + ' REL MATCH'
+            else:
+              x_label = x_label + '  MATCH'
           #if rr_all[c] == False:
             #continue 
           #ax = fig.add_subplot(1,match_total+1, count)
@@ -1141,8 +1141,9 @@ def analyze_embedding_retrieval(db):
         # this needs to be before plt.show()
         img_name = args.output_dir + '/' + args.model_label + '_IoU' + str(args.min_iou) + '_' + str(query_orig_idx) + '.png'
         plt.savefig(img_name, bbox_inches='tight', pad_inches = 0)
-      #else:
-      #plt.show()
+      #pdb.set_trace()
+      #if args.visualize_retrieval:
+      #  plt.show()
     
       t += 1
  
