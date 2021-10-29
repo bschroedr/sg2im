@@ -774,8 +774,8 @@ def calculate_relative_IoU(q_sbox, r_sbox, q_bbox, r_bbox):
   w_rbb_sc = w_rbb*w_scale
   h_rbb_sc = h_rbb*h_scale
   # rescale r_bbox translate vector (ULH corner bbox)  and translate rescaled box (LRH corner bbox)
-  x1_rbb_sc = r_sbox[0]*w_scale
-  y1_rbb_sc = r_sbox[1]*h_scale
+  x1_rbb_sc = r_bbox[0]*w_scale
+  y1_rbb_sc = r_bbox[1]*h_scale
   x2_rbb_sc = x1_rbb_sc + w_rbb_sc
   y2_rbb_sc = y1_rbb_sc + h_rbb_sc
   # calculate IoU between q_bbox and rescaled r_bbox
