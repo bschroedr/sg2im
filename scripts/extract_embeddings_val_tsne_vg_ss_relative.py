@@ -762,26 +762,31 @@ def calculate_relative_IoU(q_sbox, r_sbox, q_bbox, r_bbox):
   h_qsb = q_sbox[3] - q_sbox[1]
   w_rsb = r_sbox[2] - r_sbox[0] 
   h_rsb = r_sbox[3] - r_sbox[1]
+  #print("w/h query sbox, w/h retr sbox: ", w_qsb, h_qsb, w_rsb, h_rsb)
   # get rescale factor from superboxes to apply to q_bbox, r_bbox
-  w_scale = w_rsb/w_qsb
-  h_scale = h_rsb/h_qsb  
+  w_scale = w_qsb/w_rsb
+  h_scale = h_qsb/h_rsb
+  #print("w/h scale: ",w_scale, h_scale)
   # crop bounding boxes
-  w_qbb = q_bbox[2] - q_bbox[0] 
-  h_qbb = q_bbox[3] - q_bbox[1]
   w_rbb = r_bbox[2] - r_bbox[0]
   h_rbb = r_bbox[3] - r_bbox[1]
+  #print("w/h retrieval bbox: ", w_rbb, h_rbb)
   # rescale r_bbox to calculate IoU between it and q_bbox
   w_rbb_sc = w_rbb*w_scale
   h_rbb_sc = h_rbb*h_scale
-  # rescale r_bbox translate vector (ULH corner bbox)  and translate rescaled box (LRH corner bbox)
-  x1_rbb_sc = r_bbox[0]*w_scale
-  y1_rbb_sc = r_bbox[1]*h_scale
+  #print("scaled w/h of retrieval bbox: ", w_rbb_sc, h_rbb_sc)
+  # rescale r_bbox translate vector in query box frame scale  and translate into query box frame
+  x1_rbb_sc = (r_bbox[0]-r_sbox[0])*w_scale + q_sbox[0]
+  y1_rbb_sc = (r_bbox[1]-r_sbox[1])*h_scale + q_sbox[1]
+  #print(r_bbox[0], r_sbox[0])
+  #print(r_bbox[1], r_sbox[1])
   x2_rbb_sc = x1_rbb_sc + w_rbb_sc
   y2_rbb_sc = y1_rbb_sc + h_rbb_sc
+  #print([x1_rbb_sc, y1_rbb_sc, x2_rbb_sc, y2_rbb_sc])
+  #print(q_bbox)
   # calculate IoU between q_bbox and rescaled r_bbox
   rel_IoU = calculate_IoU(q_bbox, [x1_rbb_sc, y1_rbb_sc, x2_rbb_sc, y2_rbb_sc]) 
-  return rel_IoU
-   
+  return rel_IoU 
 ###
 
 def euclid_dist(t1, t2):
@@ -1046,6 +1051,8 @@ def analyze_embedding_retrieval(db):
           if args.relative_iou: # and superbox_iou > min_superbox_iou: # and iou_bool == False:
             #if (su_iou_rel >= min_iou) and (ob_iou_rel >= min_iou):
             if superbox_iou > min_superbox_iou:
+              #if query_orig_idx == 544:
+                pdb.set_trace()
               su_iou = calculate_relative_IoU(query_superbox, retr_superbox, query_su_bbox, retr_su_bbox) 
               ob_iou = calculate_relative_IoU(query_superbox, retr_superbox, query_ob_bbox, retr_ob_bbox) 
               #rel_iou_val = True # we have a match with relative IoU
