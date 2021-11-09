@@ -787,8 +787,18 @@ def calculate_relative_IoU(q_sbox, r_sbox, q_bbox, r_bbox):
   # calculate IoU between q_bbox and rescaled r_bbox
   rel_IoU = calculate_IoU(q_bbox, [x1_rbb_sc, y1_rbb_sc, x2_rbb_sc, y2_rbb_sc]) 
   return rel_IoU 
-###
 
+def relativize(box,parent):
+  w = parent[2] - parent[0]
+  h = parent[3] - parent[1]
+  return [
+          (box[0] - parent[0]) / w,
+          (box[1] - parent[1]) / h,
+          (box[2] - parent[0]) / w,
+          (box[3] - parent[1]) / h,
+  ]
+
+###
 def euclid_dist(t1, t2):
   t = (t1-t2)
   tt = t**2
@@ -1051,11 +1061,15 @@ def analyze_embedding_retrieval(db):
           if args.relative_iou: # and superbox_iou > min_superbox_iou: # and iou_bool == False:
             #if (su_iou_rel >= min_iou) and (ob_iou_rel >= min_iou):
             if superbox_iou > min_superbox_iou:
-              #if query_orig_idx == 544:
-                pdb.set_trace()
               su_iou = calculate_relative_IoU(query_superbox, retr_superbox, query_su_bbox, retr_su_bbox) 
               ob_iou = calculate_relative_IoU(query_superbox, retr_superbox, query_ob_bbox, retr_ob_bbox) 
-              #rel_iou_val = True # we have a match with relative IoU
+              # alternative method that gives same result
+              #q_relative = relativize(query_su_bbox,query_superbox)
+              #r_relative = relativize(retr_su_bbox,retr_superbox)
+              #su_iou = calculate_IoU(q_relative, r_relative)
+              #q_relative = relativize(query_ob_bbox,query_superbox)
+              #r_relative = relativize(retr_ob_bbox,retr_superbox)
+              #ob_iou = calculate_IoU(q_relative, r_relative)
             results_iou_bool += [(su_iou >= min_iou) and (ob_iou >= min_iou)]
           else:
             su_iou = calculate_IoU(query_su_bbox, retr_su_bbox)
