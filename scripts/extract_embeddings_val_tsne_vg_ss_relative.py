@@ -152,6 +152,8 @@ parser.add_argument('--raw_features', default=False, type=int)
 parser.add_argument('--min_iou', default=0.2, type=float)
 # relative spatial relevance
 parser.add_argument('--relative_iou', default=False, type=int)
+# visualize relative vs absolute spatial relevance
+parser.add_argument('--compare_iou', default=False, type=int)
 # retrieval type
 parser.add_argument('--lvrr', default=False, type=int)
 parser.add_argument('--vrr', default=False, type=int)
@@ -1039,6 +1041,9 @@ def analyze_embedding_retrieval(db):
         results_iou = []
         results_iou_bool = []
         rel_iou_bool = [] 
+        abs_iou_bool = [] 
+        rel_iou = [] 
+        abs_iou = [] 
         rr_all = []
         min_iou = args.min_iou
         min_superbox_iou = 0.5
@@ -1051,15 +1056,9 @@ def analyze_embedding_retrieval(db):
           retr_ob_bbox = ob_bbox[b]
           # triplet superbox IoU for relative IoU calculation
           superbox_iou = calculate_IoU(query_superbox, retr_superbox) 
-          #su_iou = calculate_IoU(query_su_bbox, retr_su_bbox)
-          #ob_iou = calculate_IoU(query_ob_bbox, retr_ob_bbox)
-          #iou_bool = (su_iou >= min_iou) and (ob_iou >= min_iou)    
           su_iou = 0
           ob_iou = 0
-          rel_iou_val = False
-          #if args.relative_iou and superbox_iou > min_superbox_iou: # and iou_bool == False:
-          if args.relative_iou: # and superbox_iou > min_superbox_iou: # and iou_bool == False:
-            #if (su_iou_rel >= min_iou) and (ob_iou_rel >= min_iou):
+          if args.relative_iou: 
             if superbox_iou > min_superbox_iou:
               su_iou = calculate_relative_IoU(query_superbox, retr_superbox, query_su_bbox, retr_su_bbox) 
               ob_iou = calculate_relative_IoU(query_superbox, retr_superbox, query_ob_bbox, retr_ob_bbox) 
@@ -1077,12 +1076,24 @@ def analyze_embedding_retrieval(db):
             results_iou_bool += [(su_iou >= min_iou) and (ob_iou >= min_iou)] 
 
           #results_iou_bool += [(su_iou >= min_iou) and (ob_iou >= min_iou)] 
-          #results_iou_bool += [(su_iou >= min_iou) and (ob_iou >= min_iou)] 
           s_iou += [su_iou]
           o_iou += [ob_iou]
           sb_iou += [superbox_iou]
-          rel_iou_bool += [rel_iou_val]
-     
+  
+          # we know index of image 
+          if args.compare_iou:
+            su_iou_abs = ob_iou_abs = 0
+            su_iou_rel = ob_iou_rel = 0
+            if superbox_iou > min_superbox_iou:
+                su_iou_rel = calculate_relative_IoU(query_superbox, retr_superbox, query_su_bbox, retr_su_bbox)
+                ob_iou_rel = calculate_relative_IoU(query_superbox, retr_superbox, query_ob_bbox, retr_ob_bbox)
+            su_iou_abs = calculate_IoU(query_su_bbox, retr_su_bbox)
+            ob_iou_abs = calculate_IoU(query_ob_bbox, retr_ob_bbox)
+            rel_iou_bool += [(su_iou_rel >= min_iou) and (ob_iou_rel >= min_iou)]
+            abs_iou_bool += [(su_iou_abs >= min_iou) and (ob_iou_abs >= min_iou)]
+            rel_iou += [(superbox_iou, su_iou_rel, ob_iou_rel)]
+            abs_iou += [(su_iou_abs, ob_iou_abs)]
+ 
         ##rr_iou = (np.array(results_iou) >= min_iou).astype(int)
         rr_iou = (np.array(results_iou_bool) == True).astype(int)
         # consider spatial + semantic relevance for L-VRR or SSR
@@ -1129,6 +1140,40 @@ def analyze_embedding_retrieval(db):
           print('....SKIPPING....')
           continue
 
+      if args.compare_iou:
+        compare_iou_bool = np.logical_xor(rel_iou_bool, abs_iou_bool).astype(int)
+        iou_idx = np.where(compare_iou_bool == True) # index into results_idx
+        iou_idx = iou_idx[0][0:20]
+        query_img = np.array(imgs[query_orig_idx]).squeeze()
+        for i in iou_idx:
+          fig = plt.figure(figsize=(6,3))
+          ax = fig.add_subplot(1,3,1)
+          # query img
+          plt.imshow(query_img) 
+          plt.xlabel(k[query_orig_idx], fontsize=6)
+          ax.tick_params(length=0, width=0, labelbottom=False, labelleft=False)
+          # retrieved img
+          img_index = results_idx[i] # index into (original) imgs list
+          retr_img = np.array(imgs[img_index]).squeeze()
+          ax = fig.add_subplot(1,3,2)
+          plt.imshow(retr_img) # relative
+          iou_label = "{:.2f} {:.2f} {:.2f}".format(rel_iou[i][0], rel_iou[i][1], rel_iou[i][2]) # relative
+          if rel_iou_bool[i] == True:
+            iou_label += ": MATCH"
+          plt.xlabel(iou_label, fontsize=6)
+          ax.tick_params(length=0, width=0, labelbottom=False, labelleft=False)
+          ax = fig.add_subplot(1,3,3)
+          plt.imshow(retr_img) # absolute
+          iou_label = "{:.2f} {:.2f}".format(abs_iou[i][0], abs_iou[i][1]) # absolute 
+          if abs_iou_bool[i] == True:
+            iou_label += ": MATCH"
+          plt.xlabel(iou_label, fontsize=6)
+          ax.tick_params(length=0, width=0, labelbottom=False, labelleft=False)
+          img_name = args.output_dir + '/' + args.model_label + '_compare_IoU' + str(query_orig_idx) + '_' + str(i) + '.png'
+          plt.savefig(img_name, bbox_inches='tight', pad_inches = 0)
+          #plt.show()
+        continue
+
       # visualize query and topK images
       count = 1
       fig = plt.figure(figsize=(18,3))
@@ -1149,10 +1194,7 @@ def analyze_embedding_retrieval(db):
         x_label = k[n] + '\n' + iou_label
         if args.visualize_oracle:
           if rr_all[c] == True:
-            if rel_iou_bool == True:
-              x_label = x_label + ' REL MATCH'
-            else:
-              x_label = x_label + '  MATCH'
+            x_label = x_label + '  MATCH'
           #if rr_all[c] == False:
             #continue 
           #ax = fig.add_subplot(1,match_total+1, count)
