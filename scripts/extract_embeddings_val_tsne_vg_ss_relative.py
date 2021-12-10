@@ -979,7 +979,7 @@ def analyze_embedding_retrieval(db):
   print('number of unfiltered triplets:', len(embeds))
   f = open('all_queries_docs.txt', 'w')
   if args.generate_samples:
-    f_s = open(args.output_dir + '/image_iou_list.txt', 'w')
+    f_s = open(args.output_dir + '/image_iou_xywh_list.txt', 'w')
 
   if(visualize_exs):
     t = 0
@@ -1188,8 +1188,8 @@ def analyze_embedding_retrieval(db):
 
       if args.generate_samples:
         white_query_img = np.array(white_imgs[query_orig_idx]).squeeze()
-        idx = index[0:topK].tolist()
-        for c, n in enumerate(idx):
+        idx = index[0:5*topK].tolist()
+        for c, n in enumerate(idx): # c is new results (like iou) index, n is index corresponding retr. sorted order (db items)
           iou_label = "{:.2f}".format(s_iou[c])
           fig = plt.figure(figsize=(6,3))
           ax = fig.add_subplot(1,2,1)
@@ -1202,9 +1202,16 @@ def analyze_embedding_retrieval(db):
           #plt.xlabel(iou_label, fontsize=6)
           img_name = args.output_dir + '/' + str(query_orig_idx) + '_' + str(n) + '_' + iou_label + '.png'
           print('Writing file ', img_name)
-          plt.savefig(img_name, bbox_inches='tight', pad_inches = 0)
+          #plt.savefig(img_name, bbox_inches='tight', pad_inches = 0)
+          # xywh for query and subject boxes
+          w = su_bbox[n][2] - su_bbox[n][0] # use sorted 
+          h = su_bbox[n][3] - su_bbox[n][1]  
+          xywh = str(su_bbox[n][0]) + '\t' + str(su_bbox[n][1]) + '\t' + str(w) + '\t' + str(h)
+          w = query_su_bbox[2] - query_su_bbox[0] 
+          h = query_su_bbox[3] - query_su_bbox[1]
+          query_xywh = str(query_su_bbox[0]) + '\t' + str(query_su_bbox[1]) + '\t' + str(w) + '\t' + str(h)
+          f_s.write(img_name + '\t' +  iou_label + '\t' + query_xywh + '\t' + xywh + '\n')
           #plt.show()
-          f_s.write(img_name + '\t' +  iou_label + '\n')
         continue
       
       # skip retrieval visualization for this query and
