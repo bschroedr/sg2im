@@ -152,6 +152,12 @@ parser.add_argument('--raw_features', default=False, type=int)
 parser.add_argument('--min_iou', default=0.2, type=float)
 # relative spatial relevance
 parser.add_argument('--relative_iou', default=False, type=int)
+# visualize relative vs absolute spatial relevance
+parser.add_argument('--compare_iou', default=False, type=int)
+# compare bounding boxes for human preference study
+parser.add_argument('--generate_samples', default=False, type=int)
+# calculate ideal recall
+parser.add_argument('--calculate_ideal', default=False, type=int)
 # retrieval type
 parser.add_argument('--lvrr', default=False, type=int)
 parser.add_argument('--vrr', default=False, type=int)
@@ -676,6 +682,13 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
                                W=args.image_size[0], H=args.image_size[1], 
                                drawText=False, drawSuperbox=False)
             relationship['full_image'] = [sb_overlay_image]
+            # create user study image 
+            white_image = np.ones((args.image_size[0], args.image_size[1], 3))
+            bbox_overlay_image = vis.overlay_boxes(white_image, model.vocab, objs_vec, 
+                               torch.from_numpy(np.array([relationship['subject_bbox']])), obj_to_img, 
+                               W=args.image_size[0], H=args.image_size[1], 
+                               drawText=False, drawSuperbox=False)
+            relationship['white_image'] = [bbox_overlay_image]
             #relationship['full_image'] = [np_imgs[batch_index].tolist()] 
 
             triplet_str = db_utils.tuple_to_string(triplet)
@@ -730,6 +743,9 @@ def check_model(args, t, loader, model, log_tag='', write_images=False):
 def calculate_recall(results, count):
   num_elem = len(results)
   all_r = [] 
+  all_r_a = [] 
+  if args.calculate_ideal:
+    results = np.array(results)[results.argsort()[::-1]]
   for i in range(0,num_elem):
     r = sum(results[:i+1])/count # normal results 
     #r = min(i+1,count)/count # ideal results
@@ -762,24 +778,45 @@ def calculate_relative_IoU(q_sbox, r_sbox, q_bbox, r_bbox):
   h_qsb = q_sbox[3] - q_sbox[1]
   w_rsb = r_sbox[2] - r_sbox[0] 
   h_rsb = r_sbox[3] - r_sbox[1]
+  #print("w/h query sbox, w/h retr sbox: ", w_qsb, h_qsb, w_rsb, h_rsb)
   # get rescale factor from superboxes to apply to q_bbox, r_bbox
-  w_scale = w_rsb/w_qsb
-  h_scale = h_rsb/h_qsb  
+  w_scale = w_qsb/w_rsb
+  h_scale = h_qsb/h_rsb
+  #print("w/h scale: ",w_scale, h_scale)
   # crop bounding boxes
-  w_qbb = q_bbox[2] - q_bbox[0] 
-  h_qbb = q_bbox[3] - q_bbox[1]
   w_rbb = r_bbox[2] - r_bbox[0]
   h_rbb = r_bbox[3] - r_bbox[1]
+  #print("w/h retrieval bbox: ", w_rbb, h_rbb)
   # rescale r_bbox to calculate IoU between it and q_bbox
   w_rbb_sc = w_rbb*w_scale
   h_rbb_sc = h_rbb*h_scale
+  #print("scaled w/h of retrieval bbox: ", w_rbb_sc, h_rbb_sc)
+  # rescale r_bbox translate vector in query box frame scale  and translate into query box frame
+  x1_rbb_sc = (r_bbox[0]-r_sbox[0])*w_scale + q_sbox[0]
+  y1_rbb_sc = (r_bbox[1]-r_sbox[1])*h_scale + q_sbox[1]
+  #print(r_bbox[0], r_sbox[0])
+  #print(r_bbox[1], r_sbox[1])
+  x2_rbb_sc = x1_rbb_sc + w_rbb_sc
+  y2_rbb_sc = y1_rbb_sc + h_rbb_sc
+  #print([x1_rbb_sc, y1_rbb_sc, x2_rbb_sc, y2_rbb_sc])
+  #print(q_bbox)
   # calculate IoU between q_bbox and rescaled r_bbox
-  rel_IoU = calculate_IoU([0, 0, w_qbb, h_qbb], [0, 0, w_rbb_sc, h_rbb_sc])
-  IoU = calculate_IoU([0, 0, w_qbb, h_qbb], [0, 0, w_rbb, h_rbb])
-  return rel_IoU, IoU
-   
-###
+  rel_IoU = calculate_IoU(q_bbox, [x1_rbb_sc, y1_rbb_sc, x2_rbb_sc, y2_rbb_sc]) 
+  return rel_IoU 
 
+# this places the box in a normalized coordinate system. 
+# subject and object box will be compared once in (shared) normalized coord system.
+def relativize(box,parent):
+  w = parent[2] - parent[0]
+  h = parent[3] - parent[1]
+  return [
+          (box[0] - parent[0]) / w,
+          (box[1] - parent[1]) / h,
+          (box[2] - parent[0]) / w,
+          (box[3] - parent[1]) / h,
+  ]
+
+###
 def euclid_dist(t1, t2):
   t = (t1-t2)
   tt = t**2
@@ -827,6 +864,7 @@ def analyze_embedding_retrieval(db):
   x = []
   embeds = []
   imgs = []
+  white_imgs = []
   np_imgs = []
   labels = []
   labels_to_keys = []
@@ -880,6 +918,7 @@ def analyze_embedding_retrieval(db):
       #imgs += [ db[k][t]['image'] ]
       # full image
       imgs += [ db[k][t]['full_image'] ]
+      white_imgs += [ db[k][t]['white_image'] ]
 
       # L-VRR (spatial + semantic)/VRR (semantic only)
       if args.lvrr == True or args.vrr == True:
@@ -944,7 +983,9 @@ def analyze_embedding_retrieval(db):
   #print(np_keys[:num_keys])
   visualize_exs = True
   print('number of unfiltered triplets:', len(embeds))
-  f = open("all_queries_docs.txt", "w")
+  f = open('all_queries_docs.txt', 'w')
+  if args.generate_samples:
+    f_s = open(args.output_dir + '/image_iou_xywh_list.txt', 'w')
 
   if(visualize_exs):
     t = 0
@@ -973,6 +1014,7 @@ def analyze_embedding_retrieval(db):
       query = embeds[i]
       query_str = np_keys[i]
       query_img = imgs[i]
+      white_query_img = white_imgs[i]
       query_orig_idx = i
       # IoU
       query_su_bbox = su_bbox[i]
@@ -1020,9 +1062,13 @@ def analyze_embedding_retrieval(db):
         results_iou = []
         results_iou_bool = []
         rel_iou_bool = [] 
+        abs_iou_bool = [] 
+        rel_iou = [] 
+        abs_iou = [] 
         rr_all = []
         min_iou = args.min_iou
-        min_superbox_iou = 0.5
+        #min_superbox_iou = 0.5
+        min_superbox_iou = 0.4 # decrease SB thresh, incr su/ob thresh
 
         for b in results_idx:
           # superbox
@@ -1032,26 +1078,44 @@ def analyze_embedding_retrieval(db):
           retr_ob_bbox = ob_bbox[b]
           # triplet superbox IoU for relative IoU calculation
           superbox_iou = calculate_IoU(query_superbox, retr_superbox) 
-          su_iou = calculate_IoU(query_su_bbox, retr_su_bbox)
-          ob_iou = calculate_IoU(query_ob_bbox, retr_ob_bbox)
-          iou_bool = (su_iou >= min_iou) and (ob_iou >= min_iou)
-          rel_iou_val = False
-          if args.relative_iou and superbox_iou > min_superbox_iou and iou_bool == False:
-            su_iou_rel, su_iou_nonrel = calculate_relative_IoU(query_superbox, retr_superbox, query_su_bbox, retr_su_bbox)
-            ob_iou_rel, ob_iou_nonrel = calculate_relative_IoU(query_superbox, retr_superbox, query_ob_bbox, retr_ob_bbox)          
-           # if relative IoU fails, use original su_iou/ob_iou
-            if (su_iou_rel >= min_iou) and (ob_iou_rel >= min_iou):
-              su_iou = su_iou_rel
-              ob_iou = ob_iou_rel
-              rel_iou_val = True # we have a match with relative IoU
+          su_iou = 0
+          ob_iou = 0
+          if args.relative_iou: 
+            if superbox_iou > min_superbox_iou:
+              su_iou = calculate_relative_IoU(query_superbox, retr_superbox, query_su_bbox, retr_su_bbox) 
+              ob_iou = calculate_relative_IoU(query_superbox, retr_superbox, query_ob_bbox, retr_ob_bbox) 
+              # alternative method that gives same result
+              #q_relative = relativize(query_su_bbox,query_superbox)
+              #r_relative = relativize(retr_su_bbox,retr_superbox)
+              #su_iou = calculate_IoU(q_relative, r_relative)
+              #q_relative = relativize(query_ob_bbox,query_superbox)
+              #r_relative = relativize(retr_ob_bbox,retr_superbox)
+              #ob_iou = calculate_IoU(q_relative, r_relative)
+            results_iou_bool += [(su_iou >= min_iou) and (ob_iou >= min_iou)]
+          else:
+            su_iou = calculate_IoU(query_su_bbox, retr_su_bbox)
+            ob_iou = calculate_IoU(query_ob_bbox, retr_ob_bbox)
+            results_iou_bool += [(su_iou >= min_iou) and (ob_iou >= min_iou)] 
 
-          results_iou_bool += [(su_iou >= min_iou) and (ob_iou >= min_iou)] 
           #results_iou_bool += [(su_iou >= min_iou) and (ob_iou >= min_iou)] 
           s_iou += [su_iou]
           o_iou += [ob_iou]
           sb_iou += [superbox_iou]
-          rel_iou_bool += [rel_iou_val]
-     
+  
+          # we know index of image 
+          if args.compare_iou:
+            #su_iou_abs = ob_iou_abs = 0
+            #su_iou_rel = ob_iou_rel = 0
+            #if superbox_iou > min_superbox_iou:
+            su_iou_rel = calculate_relative_IoU(query_superbox, retr_superbox, query_su_bbox, retr_su_bbox)
+            ob_iou_rel = calculate_relative_IoU(query_superbox, retr_superbox, query_ob_bbox, retr_ob_bbox)
+            su_iou_abs = calculate_IoU(query_su_bbox, retr_su_bbox)
+            ob_iou_abs = calculate_IoU(query_ob_bbox, retr_ob_bbox)
+            rel_iou_bool += [(su_iou_rel >= min_iou) and (ob_iou_rel >= min_iou) and (superbox_iou > min_superbox_iou)]
+            abs_iou_bool += [(su_iou_abs >= min_iou) and (ob_iou_abs >= min_iou)]
+            rel_iou += [(superbox_iou, su_iou_rel, ob_iou_rel)]
+            abs_iou += [(su_iou_abs, ob_iou_abs)]
+ 
         ##rr_iou = (np.array(results_iou) >= min_iou).astype(int)
         rr_iou = (np.array(results_iou_bool) == True).astype(int)
         # consider spatial + semantic relevance for L-VRR or SSR
@@ -1090,13 +1154,76 @@ def analyze_embedding_retrieval(db):
           print('skipping recall calculation for ', query_str)
           f.write(query_str + '\n') 
           continue
-        # skip retrieval visualization for this query and
-        # continue on to the next retrieval 
-        if not args.visualize_retrieval and not args.visualize_oracle: 
-          continue
         if match_total == 0:
           print('....SKIPPING....')
           continue
+
+      if args.compare_iou:
+        compare_iou_bool = np.logical_xor(rel_iou_bool, abs_iou_bool).astype(int)
+        iou_idx = np.where(compare_iou_bool == True) # index into results_idx
+        iou_idx = iou_idx[0][0:15]
+        query_img = np.array(imgs[query_orig_idx]).squeeze()
+        for i in iou_idx:
+          fig = plt.figure(figsize=(6,3))
+          ax = fig.add_subplot(1,3,1)
+          # query img
+          plt.imshow(query_img) 
+          plt.xlabel(k[query_orig_idx], fontsize=6)
+          ax.tick_params(length=0, width=0, labelbottom=False, labelleft=False)
+          # retrieved img
+          img_index = results_idx[i] # index into (original) imgs list
+          retr_img = np.array(imgs[img_index]).squeeze()
+          ax = fig.add_subplot(1,3,2)
+          plt.imshow(retr_img) # relative
+          iou_label = "{:.2f} {:.2f} {:.2f}".format(rel_iou[i][0], rel_iou[i][1], rel_iou[i][2]) # relative
+          if rel_iou_bool[i] == True:
+            iou_label += ": MATCH"
+          plt.xlabel(iou_label, fontsize=6)
+          ax.tick_params(length=0, width=0, labelbottom=False, labelleft=False)
+          ax = fig.add_subplot(1,3,3)
+          plt.imshow(retr_img) # absolute
+          iou_label = "{:.2f} {:.2f}".format(abs_iou[i][0], abs_iou[i][1]) # absolute 
+          if abs_iou_bool[i] == True:
+            iou_label += ": MATCH"
+          plt.xlabel(iou_label, fontsize=6)
+          ax.tick_params(length=0, width=0, labelbottom=False, labelleft=False)
+          img_name = args.output_dir + '/' + args.model_label + '_compare_IoU' + str(query_orig_idx) + '_' + str(i) + '.png'
+          plt.savefig(img_name, bbox_inches='tight', pad_inches = 0)
+          #plt.show()
+        continue
+
+      if args.generate_samples:
+        white_query_img = np.array(white_imgs[query_orig_idx]).squeeze()
+        idx = index[0:5*topK].tolist()
+        for c, n in enumerate(idx): # c is new results (like iou) index, n is index corresponding retr. sorted order (db items)
+          iou_label = "{:.2f}".format(s_iou[c])
+          fig = plt.figure(figsize=(6,3))
+          ax = fig.add_subplot(1,2,1)
+          plt.imshow(white_query_img)
+          ax.tick_params(length=0, width=0, labelbottom=False, labelleft=False)
+          ax = fig.add_subplot(1,2,2)
+          retr_img = np.array(white_imgs[n]).squeeze()
+          plt.imshow(retr_img)        
+          ax.tick_params(length=0, width=0, labelbottom=False, labelleft=False)
+          #plt.xlabel(iou_label, fontsize=6)
+          img_name = args.output_dir + '/' + str(query_orig_idx) + '_' + str(n) + '_' + iou_label + '.png'
+          print('Writing file ', img_name)
+          #plt.savefig(img_name, bbox_inches='tight', pad_inches = 0)
+          # xywh for query and subject boxes
+          w = su_bbox[n][2] - su_bbox[n][0] # use sorted 
+          h = su_bbox[n][3] - su_bbox[n][1]  
+          xywh = str(su_bbox[n][0]) + '\t' + str(su_bbox[n][1]) + '\t' + str(w) + '\t' + str(h)
+          w = query_su_bbox[2] - query_su_bbox[0] 
+          h = query_su_bbox[3] - query_su_bbox[1]
+          query_xywh = str(query_su_bbox[0]) + '\t' + str(query_su_bbox[1]) + '\t' + str(w) + '\t' + str(h)
+          f_s.write(img_name + '\t' +  iou_label + '\t' + query_xywh + '\t' + xywh + '\n')
+          #plt.show()
+        continue
+      
+      # skip retrieval visualization for this query and
+      # continue on to the next retrieval 
+      if not args.visualize_retrieval and not args.visualize_oracle: 
+        continue
 
       # visualize query and topK images
       count = 1
@@ -1118,10 +1245,7 @@ def analyze_embedding_retrieval(db):
         x_label = k[n] + '\n' + iou_label
         if args.visualize_oracle:
           if rr_all[c] == True:
-            if rel_iou_bool == True:
-              x_label = x_label + ' REL MATCH'
-            else:
-              x_label = x_label + '  MATCH'
+            x_label = x_label + '  MATCH'
           #if rr_all[c] == False:
             #continue 
           #ax = fig.add_subplot(1,match_total+1, count)
@@ -1141,9 +1265,8 @@ def analyze_embedding_retrieval(db):
         # this needs to be before plt.show()
         img_name = args.output_dir + '/' + args.model_label + '_IoU' + str(args.min_iou) + '_' + str(query_orig_idx) + '.png'
         plt.savefig(img_name, bbox_inches='tight', pad_inches = 0)
-      #pdb.set_trace()
-      #if args.visualize_retrieval:
-      #  plt.show()
+      if args.visualize_retrieval:
+        plt.show()
     
       t += 1
  
@@ -1177,6 +1300,8 @@ def analyze_embedding_retrieval(db):
     #pdb.set_trace()
     
   f.close()
+  if args.generate_samples:
+    f_s.close()
 
 ###
 def main(args):
@@ -1217,7 +1342,7 @@ def main(args):
     print('Created %s' %args.output_dir)
 
   if args.visualize_oracle:
-    args.visualize_retrieval = True
+    #args.visualize_retrieval = True
     args.raw_features = True  
   ## add code for validation visualization
   #logger = Logger(args.output_dir)
